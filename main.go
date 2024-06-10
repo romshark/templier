@@ -180,7 +180,7 @@ func runStateTracker() {
 				default:
 					// Don't overwrite ErrTempl with other errors
 					// because even though templ failed it could continue
-					// successfuly linting & compiling and the templ error
+					// successfully linting & compiling and the templ error
 					// would be overwritten.
 					return
 				}
