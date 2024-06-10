@@ -11,6 +11,8 @@ jobs:
           check-latest: true
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      # Test
       - name: Test
         run: go test -v -race ./...
       - name: Calculate coverage
@@ -25,3 +27,21 @@ jobs:
       - name: Run go vet
         continue-on-error: true
         run: go vet ./...
+
+      # Make sure templ generate was executed before commit
+      - name: Generate templates
+        run: go run github.com/a-h/templ/cmd/templ generate
+      - name: Check file changes after templ generate
+        run: |
+          git diff --exit-code
+        id: diff_files_after_templ_generate
+        continue-on-error: true
+      - name: Fail if changes are detected
+        if: steps.diff_files_after_templ_generate.outcome == 'failure'
+        run: |
+          echo "Detected uncommitted changes after running templ generate." \
+          "Please regenerate .templ templates and commit changes." && exit 1
+
+      # Try compile
+      - name: Compile
+        run: go build -o /dev/null .
