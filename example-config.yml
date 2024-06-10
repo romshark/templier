@@ -6,10 +6,10 @@ proxy-timeout: 10s
 # lint enables golangci-lint when true
 lint: true
 
-# host defines what host address to run Templier on.
-host: "your-application:11000"
+# templier-host defines what host address to run Templiér on.
+templier-host: "your-application:11000"
 
-# print-js-debug-logs enables Templier debug logs in the browser.
+# print-js-debug-logs enables Templiér debug logs in the browser.
 print-js-debug-logs: true
 
 debounce:
@@ -35,7 +35,7 @@ app:
 
   # app.dir-cmd defines the path to the main package directory
   # within the app source directory.
-  dir-cmd: ./cmd/server
+  dir-cmd: ./cmd/server/
 
   # app.dir-work defines the path to the workspace directory
   # to run the application server executable in.

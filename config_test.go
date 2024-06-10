@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"testing"
 
 	"github.com/romshark/yamagiconf"
@@ -55,4 +56,14 @@ func TestSpaceSeparatedList(t *testing.T) {
 			require.Equal(t, td.expect, actual.List)
 		})
 	}
+}
+
+//go:embed example-config.yml
+var exampleConfig string
+
+func TestExampleConfig(t *testing.T) {
+	var c Config
+
+	err := yamagiconf.Load(exampleConfig, &c)
+	require.NoError(t, err)
 }
