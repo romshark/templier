@@ -57,8 +57,8 @@ type Config struct {
 
 	// TLS is optional, will serve HTTP instead of HTTPS if nil.
 	TLS *struct {
-		Cert string `yaml:"cert" validate:"required"`
-		Key  string `yaml:"key" validate:"required"`
+		Cert string `yaml:"cert" validate:"filepath,required"`
+		Key  string `yaml:"key" validate:"filepath,required"`
 	} `yaml:"tls"`
 }
 
