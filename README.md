@@ -11,6 +11,18 @@ Templiér is a Go web frontend development environment for
 - Shuts your server down gracefully.
 - Displays application server console logs in the terminal.
 
+## Quick Start
+
+Install:
+```sh
+go install github.com/romshark/templier@latest 
+```
+Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder, edit to your needs and run:
+
+```sh
+templier --config ./config.yml
+```
+
 ## How it works
 
 Templiér acts as a file watcher, proxy server and process manager.
