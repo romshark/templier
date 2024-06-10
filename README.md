@@ -13,14 +13,14 @@ Templiér is a Go web frontend development environment for
 
 ## Quick Start
 
-Install:
+Install Templiér:
 ```sh
 go install github.com/romshark/templier@latest 
 ```
-Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder, edit to your needs and run:
+Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder as `templier.yml`, edit to your needs and run:
 
 ```sh
-templier --config ./config.yml
+templier --config ./templier.yml
 ```
 
 ## How it works
