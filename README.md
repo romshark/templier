@@ -1,3 +1,7 @@
+<a href="https://goreportcard.com/report/github.com/romshark/templier">
+    <img src="https://goreportcard.com/badge/github.com/romshark/templier" alt="GoReportCard">
+</a>
+
 # Templiér
 
 Templiér is a Go web frontend development environment for
