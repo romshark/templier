@@ -32,11 +32,12 @@ templier --config ./templier.yml
 Templiér acts as a file watcher, proxy server and process manager.
 Once Templiér is started, it begins watching files in the `app.dir-src-root` directory.
 On start and on file change, it automatically builds your application server executable
-assuming that the main package is specified by the `app.dir-cmd` directory. Any custom
-Go compiler CLI arguments can be specified by `app.go-flags`. Once built,
-the application server executable is launched with `app.flags` CLI parameters and
-the working directory set to `app.dir-work`. When necessary, the application server
-process is shut down gracefully, rebuilt, linted and restarted.
+saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
+the main package is specified by the `app.dir-cmd` directory. Any custom Go compiler
+CLI arguments can be specified by `app.go-flags`. Once built, the application server
+executable is launched with `app.flags` CLI parameters and the working directory
+set to `app.dir-work`. When necessary, the application server process is shut down
+gracefully, rebuilt, linted and restarted.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
 all requests to the application server process that it launched injecting Templiér
