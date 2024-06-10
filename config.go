@@ -69,7 +69,7 @@ var (
 
 func mustParseConfig() {
 	var fConfigPath string
-	flag.StringVar(&fConfigPath, "config", "./config.yml", "config file path")
+	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
 	flag.Parse()
 
 	// Set default config
