@@ -1,0 +1,53 @@
+# proxy-timeout defines how long to wait for the
+# application server process to start when receiving
+# connection refused errors while proxying.
+proxy-timeout: 10s
+
+# lint enables golangci-lint when true
+lint: true
+
+# host defines what host address to run Templier on.
+host: "your-application:11000"
+
+# print-js-debug-logs enables Templier debug logs in the browser.
+print-js-debug-logs: true
+
+debounce:
+  # debounce.templ defines how long to wait for other .templ file changes
+  # before triggering templ generate.
+  templ: 50ms
+
+  # debounce.go defines how long to wait for other file changes
+  # before triggering server rebuild and restart.
+  go: 50ms
+
+# tls can be set to null to serve HTTP instead of HTTPS
+tls:
+  # tls.cert defines the TLS certificate file path
+  cert: ./your-application.crt.pem
+
+  # tls.keys defines the TLS private key file path
+  key: ./your-application.key.pem
+
+app:
+  # app.dir-src-root defines the path to the Go module source root directory.
+  dir-src-root: ./
+
+  # app.dir-cmd defines the path to the main package directory
+  # within the app source directory.
+  dir-cmd: ./cmd/server
+
+  # app.dir-work defines the path to the workspace directory
+  # to run the application server executable in.
+  dir-work: ./
+
+  # app.host defines the host address the application server is running on.
+  host: https://your-application:12000
+
+  # app.go-flags defines additional Go compiler CLI arguments to provide when
+  # compiling the application server executable.
+  go-flags:
+
+  # app.flags defines the CLI arguments to provide when
+  # executing the application server.
+  flags: -host your-application:12000
