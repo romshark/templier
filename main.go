@@ -91,9 +91,12 @@ func main() {
 	}
 	serverOutPath = path.Join(os.TempDir(), workingDir)
 
-	templierBaseURL, err := url.JoinPath("https://", config.TemplierHost)
-	if err != nil {
-		panic(fmt.Errorf("joining templier base URL: %w", err))
+	templierBaseURL := url.URL{
+		Scheme: "http",
+		Host:   config.TemplierHost,
+	}
+	if config.TLS != nil {
+		templierBaseURL.Scheme = "https"
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -140,7 +143,7 @@ func main() {
 	fmt.Print("🤖 templier ")
 	fGreen.Print("started")
 	fmt.Print(" on ")
-	fBlueUnderline.Println(templierBaseURL)
+	fBlueUnderline.Println(templierBaseURL.String())
 
 	<-ctx.Done()
 	chStopServer <- struct{}{}
