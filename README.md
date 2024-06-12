@@ -27,6 +27,33 @@ Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/m
 templier --config ./templier.yml
 ```
 
+## How is Templiér different from templ's own watch mode?
+
+As you may already know, templ supports [live reload](https://templ.guide/commands-and-tools/live-reload)
+out of the box using `templ generate --watch --proxy="http://localhost:8080" --cmd="go run ."`,
+which is great, but Templiér provides even better developer experience:
+
+- 🥶 Templiér doesn't become unresponsive when the Go code fails to compile,
+  instead it prints the compiler error output to the browser tab and keeps watching.
+  Once you fixed the Go code, Templiér will reload and work as usual with no intervention.
+  In contrast, templ's watcher needs to be restarted manually.
+- 📁 Templiér watches **all** file changes recursively and recompiles the server.
+  Editing an embedded `.json` file in your app?
+  Updating go mod? Templiér will notice and rebuild.
+- 🖥️ Templiér shows Go compiler and [golangci-lint](https://golangci-lint.run/) errors
+  (if any) in the browser. Templ's watcher just prints errors to the stdout and
+  continues to display the last valid state.
+- ⚙️ Templiér provides more configuration options (TLS, debounce, etc.).
+
+Other [alternatives](https://templ.guide/commands-and-tools/live-reload#built-in) to
+templ's watcher also didn't fulfill my needs at the time of writing.
+
+For now, Templiér doesn't implement templ watcher performance optimizations, such as:
+> templ generate --watch generates Go code that loads strings from a _templ.txt file on disk to reduce the number of times that Go code needs to be re-generated, and therefore reduces the number of time your app needs to be recompiled and restarted. - https://templ.guide/commands-and-tools/live-reload#built-in
+
+I also found templ's watcher to be unreliable when watching `*.go` file changes.
+Changing sub-packages didn't trigger the `cmd` rerun.
+
 ## How it works
 
 Templiér acts as a file watcher, proxy server and process manager.
