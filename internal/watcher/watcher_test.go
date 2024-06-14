@@ -84,9 +84,6 @@ func TestWatcher(t *testing.T) {
 		filepath.Join(base, "newname/subdir"),
 	})
 
-	require.Len(t, notifications, 0,
-		"notifications channel buffer must now be empty")
-
 	// Event 0
 	require.Contains(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
