@@ -1,4 +1,4 @@
-package main
+package debounce
 
 import (
 	"context"
@@ -6,9 +6,15 @@ import (
 	"time"
 )
 
-func NewDebouncedSync(duration time.Duration) (
+// NewSync creates a new concurrency-safe debouncer.
+func NewSync(duration time.Duration) (
 	runDebouncer func(ctx context.Context), trigger func(fn func()),
 ) {
+	if duration == 0 {
+		// Debounce disabled, execute fn immediately.
+		return func(context.Context) { /*Noop*/ }, func(fn func()) { fn() }
+	}
+
 	var lock sync.Mutex
 	var fn func()
 	ticker := time.NewTicker(duration)

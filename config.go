@@ -4,16 +4,25 @@ import (
 	"encoding"
 	"flag"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/romshark/yamagiconf"
 )
 
+var config Config
+
 type Config struct {
+	serverOutPath string // Initialized from os.Getwd and os.TempDir
+
 	App struct {
 		// DirSrcRoot is the source root directory for the application server.
 		DirSrcRoot string `yaml:"dir-src-root" validate:"dirpath,required"`
+
+		dirSrcRootAbsolute string // Initialized from DirSrcRoot
 
 		// DirCmd is the server cmd directory containing the `main` function.
 		DirCmd string `yaml:"dir-cmd" validate:"dirpath,required"`
@@ -62,11 +71,6 @@ type Config struct {
 	} `yaml:"tls"`
 }
 
-var (
-	serverOutPath string
-	config        Config
-)
-
 func mustParseConfig() {
 	var fConfigPath string
 	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
@@ -88,6 +92,17 @@ func mustParseConfig() {
 		if err != nil {
 			panic(fmt.Errorf("reading config file: %w", err))
 		}
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		panic(fmt.Errorf("getting working dir: %w", err))
+	}
+	config.serverOutPath = path.Join(os.TempDir(), workingDir)
+
+	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
+	if err != nil {
+		panic(fmt.Errorf("getting absolute path for app.dir-src-root: %w", err))
 	}
 }
 

@@ -1,31 +1,28 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	_ "embed"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
+
+	"github.com/romshark/templier/internal/debounce"
+	"github.com/romshark/templier/internal/watcher"
 
 	"github.com/fatih/color"
 	"github.com/fsnotify/fsnotify"
-	"github.com/gorilla/websocket"
 )
 
 const (
@@ -85,20 +82,6 @@ var (
 func main() {
 	mustParseConfig()
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		panic(fmt.Errorf("getting working dir: %w", err))
-	}
-	serverOutPath = path.Join(os.TempDir(), workingDir)
-
-	templierBaseURL := url.URL{
-		Scheme: "http",
-		Host:   config.TemplierHost,
-	}
-	if config.TLS != nil {
-		templierBaseURL.Scheme = "https"
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -128,22 +111,52 @@ func main() {
 	go runTemplierServer()
 	go runAppLauncher()
 
-	// Watch all files except "*.templ" and the .git subdir
-	mustGoWatchDir(
-		ctx, config.App.DirSrcRoot,
-		config.Debounce.Go, onFileChangedRebuildServer,
-		".git",
-	)
-	// Watch all .templ and regenerate templates
-	mustGoWatchDir(
-		ctx, config.App.DirSrcRoot,
-		config.Debounce.Templ, onTemplFileChangedGenTemplates,
-	)
+	debouncerTempl, debouncedTempl := debounce.NewSync(config.Debounce.Templ)
+	go debouncerTempl(ctx)
 
-	fmt.Print("🤖 templier ")
-	fGreen.Print("started")
-	fmt.Print(" on ")
-	fBlueUnderline.Println(templierBaseURL.String())
+	debouncerGo, debouncedGo := debounce.NewSync(config.Debounce.Go)
+	go debouncerGo(ctx)
+
+	watcher, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {
+		debounce := debouncedGo
+		if isTemplFile(e.Name) {
+			// Use different debouncer for .templ files
+			debounce = debouncedTempl
+		}
+		debounce(func() { onFileChanged(ctx, e) })
+	})
+	if err != nil {
+		fmt.Printf("🤖 ERR: initializing file watcher: %v", err)
+		os.Exit(1)
+	}
+
+	go func() {
+		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			panic(fmt.Errorf("running file watcher:%w", err))
+		}
+	}()
+
+	fmt.Println("ADD", config.App.dirSrcRootAbsolute)
+	if err := watcher.Add(config.App.dirSrcRootAbsolute); err != nil {
+		fmt.Printf("🤖 ERR: setting up file watcher for app.dir-src-root(%q): %v",
+			config.App.dirSrcRootAbsolute, err)
+		os.Exit(1)
+	}
+
+	{
+		templierBaseURL := url.URL{
+			Scheme: "http",
+			Host:   config.TemplierHost,
+		}
+		if config.TLS != nil {
+			templierBaseURL.Scheme = "https"
+		}
+
+		fmt.Print("🤖 templier ")
+		fGreen.Print("started")
+		fmt.Print(" on ")
+		fBlueUnderline.Println(templierBaseURL.String())
+	}
 
 	<-ctx.Done()
 	chStopServer <- struct{}{}
@@ -306,135 +319,67 @@ AWAIT_COMMAND:
 // fileChangedLock prevents more than one rebuilder goroutine at a time.
 var fileChangedLock sync.Mutex
 
-func onFileChangedRebuildServer(e fsnotify.Event) {
-	switch currentState.Load().(State).Type {
-	case StateTypeErrTempl, StateTypeErrGolangCILint:
-		return
-	}
+func onFileChanged(ctx context.Context, e fsnotify.Event) {
+	switch {
+	case isTemplFile(e.Name):
+		fileChangedLock.Lock()
+		defer fileChangedLock.Unlock()
 
-	fileChangedLock.Lock()
-	defer fileChangedLock.Unlock()
-
-	chMsgClients <- bytesMsgReloadInitiated
-
-	var operation string
-	switch e.Op {
-	case fsnotify.Create:
-		operation = "created"
-	case fsnotify.Write:
-		operation = "changed"
-	case fsnotify.Remove:
-		operation = "removed"
-	default:
-		return
-	}
-
-	// Ignore .templ files, another watcher will take care of them.
-	if strings.HasSuffix(e.Name, ".templ") {
-		return
-	}
-
-	fmt.Print("🤖 file ")
-	fmt.Print(operation)
-	fmt.Print(": ")
-	fBlueUnderline.Println(e.Name)
-
-	ctx := context.Background()
-	func() {
-		if config.Lint && !runGolangCILint(ctx) {
+		var operation string
+		switch e.Op {
+		case fsnotify.Create:
+			operation = "created"
+		case fsnotify.Write:
+			operation = "changed"
+		case fsnotify.Remove:
+			operation = "removed"
+		default:
 			return
 		}
-		if !buildAndRerunServer(ctx) {
+
+		fmt.Print("🤖 template file ")
+		fmt.Print(operation)
+		fmt.Print(": ")
+		fCyanUnderline.Println(e.Name)
+
+		runTemplGenerate(ctx, e.Name)
+
+	default:
+		switch currentState.Load().(State).Type {
+		case StateTypeErrTempl, StateTypeErrGolangCILint:
 			return
 		}
-	}()
-}
 
-func onTemplFileChangedGenTemplates(e fsnotify.Event) {
-	fileChangedLock.Lock()
-	defer fileChangedLock.Unlock()
+		fileChangedLock.Lock()
+		defer fileChangedLock.Unlock()
 
-	var operation string
-	switch e.Op {
-	case fsnotify.Create:
-		operation = "created"
-	case fsnotify.Write:
-		operation = "changed"
-	case fsnotify.Remove:
-		operation = "removed"
-	default:
-		return
-	}
-	if !strings.HasSuffix(e.Name, ".templ") {
-		return
-	}
+		chMsgClients <- bytesMsgReloadInitiated
 
-	fmt.Print("🤖 template file ")
-	fmt.Print(operation)
-	fmt.Print(": ")
-	fCyanUnderline.Println(e.Name)
+		var operation string
+		switch e.Op {
+		case fsnotify.Create:
+			operation = "created"
+		case fsnotify.Write:
+			operation = "changed"
+		case fsnotify.Remove:
+			operation = "removed"
+		default:
+			return
+		}
 
-	runTemplGenerate(context.Background(), e.Name)
-}
+		fmt.Print("🤖 file ")
+		fmt.Print(operation)
+		fmt.Print(": ")
+		fBlueUnderline.Println(e.Name)
 
-// mustGoWatchDir watches all directories in pathDir ignoring ignoredDirs
-// and debounces calls to fn.
-func mustGoWatchDir(
-	ctx context.Context,
-	pathDir string,
-	debounceDur time.Duration,
-	fn func(e fsnotify.Event),
-	ignoredDirs ...string,
-) {
-	debounce, do := NewDebouncedSync(debounceDur)
-	go debounce(ctx)
-
-	forEachDir(pathDir, func(dir string) {
-		go func() {
-			watcher, err := fsnotify.NewWatcher()
-			if err != nil {
-				panic(fmt.Errorf("initializing file watcher: %w", err))
+		func() {
+			if config.Lint && !runGolangCILint(ctx) {
+				return
 			}
-			defer watcher.Close()
-			if err := watcher.Add(dir); err != nil {
-				panic(fmt.Errorf("setting up file watcher: %w", err))
-			}
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case e := <-watcher.Events:
-					do(func() { fn(e) })
-				case err := <-watcher.Errors:
-					panic(fmt.Errorf("watching file: %w", err))
-				}
+			if !buildAndRerunServer(ctx) {
+				return
 			}
 		}()
-	}, ignoredDirs...)
-}
-
-// forEachDir executes fn for every subdirectory of pathDir,
-// including pathDir itself, recursively.
-func forEachDir(pathDir string, fn func(dir string), ignore ...string) {
-	// Use filepath.Walk to traverse directories
-	err := filepath.Walk(pathDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err // Stop walking the directory tree.
-		}
-		if !info.IsDir() {
-			return nil // Continue walking.
-		}
-		for _, ignored := range ignore {
-			if strings.HasPrefix(path, ignored) {
-				return nil
-			}
-		}
-		fn(path)
-		return nil
-	})
-	// Handle potential errors from walking the directory tree.
-	if err != nil {
-		panic(err) // For simplicity, panic on error. Adjust error handling as needed.
 	}
 }
 
@@ -469,12 +414,12 @@ func runGolangCILint(ctx context.Context) (ok bool) {
 }
 
 func buildAndRerunServer(ctx context.Context) (ok bool) {
-	if err := os.MkdirAll(serverOutPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(config.serverOutPath, os.ModePerm); err != nil {
 		panic(fmt.Errorf("creating go binary output file path in %q: %w",
-			serverOutPath, err))
+			config.serverOutPath, err))
 	}
 
-	binaryPath := makeUniqueServerOutPath(serverOutPath)
+	binaryPath := makeUniqueServerOutPath(config.serverOutPath)
 
 	// Register the binary path to make sure it's defer-deleted
 	filesToBeDeletedBeforeExit.Store(binaryPath)
@@ -494,193 +439,11 @@ func buildAndRerunServer(ctx context.Context) (ok bool) {
 	return true
 }
 
+func isTemplFile(filePath string) bool {
+	return strings.HasSuffix(filePath, ".templ")
+}
+
 func makeUniqueServerOutPath(basePath string) string {
 	tm := time.Now()
 	return path.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
-}
-
-type Server struct {
-	httpClient          *http.Client
-	appHostAddr         string
-	broadcasterRegister chan chan []byte
-	jsInjection         []byte
-	webSocketUpgrader   websocket.Upgrader
-}
-
-func NewServer(
-	httpClient *http.Client,
-	appHostAddr string,
-	printDebugLogs bool,
-	broadcasterRegister chan chan []byte,
-	connectionRefusedTimeout time.Duration,
-) *Server {
-	var jsInjectionBuf bytes.Buffer
-	err := jsInjection(printDebugLogs, PathProxyEvents).Render(
-		context.Background(), &jsInjectionBuf,
-	)
-	if err != nil {
-		panic(fmt.Errorf("rendering the live reload injection template: %w", err))
-	}
-	return &Server{
-		httpClient:          httpClient,
-		appHostAddr:         appHostAddr,
-		broadcasterRegister: broadcasterRegister,
-		jsInjection:         jsInjectionBuf.Bytes(),
-		webSocketUpgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin:     func(r *http.Request) bool { return true }, // Ignore CORS
-		},
-	}
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == PathProxyEvents {
-		// This request comes from the injected JavaScript,
-		// Don't forward, handle it instead.
-		s.handleProxyEvents(w, r)
-		return
-	}
-
-	state := currentState.Load().(State)
-	if state.Type.IsErr() {
-		s.handleErrPage(w, r)
-		return
-	}
-
-	u, err := url.JoinPath(s.appHostAddr, r.URL.Path)
-	if err != nil {
-		internalErr(w, "joining path", err)
-		return
-	}
-
-	proxyReq, err := http.NewRequestWithContext(
-		r.Context(), r.Method, u, r.Body,
-	)
-	if err != nil {
-		internalErr(w, "initializing request", err)
-		return
-	}
-
-	// Copy original request headers
-	proxyReq.Header = r.Header.Clone()
-
-	var resp *http.Response
-	for start := time.Now(); ; {
-		resp, err = s.httpClient.Do(proxyReq)
-		if err != nil {
-			if isConnRefused(err) {
-				if time.Since(start) < config.ProxyTimeout {
-					continue
-				}
-			}
-			http.Error(w,
-				fmt.Sprintf("proxy: sending request: %v", err),
-				http.StatusInternalServerError)
-			return
-		}
-		break
-	}
-	defer resp.Body.Close()
-
-	// Copy response headers
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-
-	// Check if the response content type is HTML to inject the script
-	if resp.StatusCode == http.StatusOK &&
-		strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			internalErr(w, "reading response body", err)
-			return
-		}
-		// Inject JavaScript
-		modified := bytes.Replace(b, bytesBodyClosingTag, s.jsInjection, 1)
-		w.Header().Set("Content-Length", strconv.Itoa(len(modified)))
-		_, _ = w.Write(modified)
-
-	} else {
-		// For non-HTML responses, just proxy the response
-		_, _ = io.Copy(w, resp.Body)
-		w.WriteHeader(resp.StatusCode)
-	}
-}
-
-func isConnRefused(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Op == "dial" {
-		const c = syscall.ECONNREFUSED
-		if sysErr, ok := opErr.Err.(*os.SyscallError); ok && sysErr.Err == c {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w,
-			"expecting method GET on templier proxy route 'events'",
-			http.StatusMethodNotAllowed)
-		return
-	}
-	c, err := s.webSocketUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		fmt.Println("🤖 ERR: upgrading to websocket:", err)
-		internalErr(w, "upgrading to websocket", err)
-		return
-	}
-	defer c.Close()
-
-	messages := make(chan []byte)
-	s.broadcasterRegister <- messages
-
-	for msg := range messages {
-		err = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if err != nil {
-			fmt.Println("🤖 ERR: setting websocket write deadline:", err)
-		}
-		err = c.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
-			return // Disconnected
-		}
-	}
-}
-
-func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
-	state := currentState.Load().(State)
-
-	var header string
-	switch state.Type {
-	case StateTypeErrTempl:
-		header = "Error: Templ"
-	case StateTypeErrCompile:
-		header = "Error: Compiling"
-	case StateTypeErrGolangCILint:
-		header = "Error: golangci-lint"
-	default:
-		header = "Error"
-	}
-	title := header
-
-	comp := errpage(
-		title, header, string(state.Msg),
-		config.PrintJSDebugLogs, PathProxyEvents,
-	)
-	err := comp.Render(r.Context(), w)
-	if err != nil {
-		panic(fmt.Errorf("rendering errpage: %w", err))
-	}
-}
-
-var bytesBodyClosingTag = []byte("</body>")
-
-func internalErr(w http.ResponseWriter, msg string, err error) {
-	http.Error(w,
-		fmt.Sprintf("proxy: %s: %v", msg, err),
-		http.StatusInternalServerError)
 }
