@@ -154,7 +154,7 @@ func TestWatcherRunCancelContext(t *testing.T) {
 func TestWatcherErrRunning(t *testing.T) {
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
-
+	require.NoError(t, w.Add(base)) // Wait for the runner to start
 	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrRunning)
 }
 
