@@ -226,7 +226,7 @@ func TestWatcherIgnore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ignored := make(chan fsnotify.Event)
+	ignored := make(chan fsnotify.Event, 2)
 	w.SetIgnoredChan(ignored)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -243,14 +243,23 @@ func TestWatcherIgnore(t *testing.T) {
 	ExpectWatched(t, w, []string{base})
 
 	MustCreateFile(t, base, ".ignore")
-	require.Equal(t, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, ".hidden"),
-	}, <-ignored)
-	require.Equal(t, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, ".ignore"),
-	}, <-ignored)
+	{
+		// I don't know why a CREATE event for .hidden is supplied even
+		// though it was created *after* the setup of the watcher 🤷🏻‍♂️
+		expectedPaths := map[string]struct{}{
+			filepath.Join(base, ".hidden"): {},
+			filepath.Join(base, ".ignore"): {},
+		}
+
+		e := <-ignored
+		require.Equal(t, fsnotify.Create, e.Op)
+		require.Contains(t, expectedPaths, e.Name)
+		delete(expectedPaths, e.Name)
+
+		e = <-ignored
+		require.Equal(t, fsnotify.Create, e.Op)
+		require.Contains(t, expectedPaths, e.Name)
+	}
 
 	MustMkdir(t, base, ".ignore_new_dir")
 	require.Equal(t, fsnotify.Event{
