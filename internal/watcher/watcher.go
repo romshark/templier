@@ -125,12 +125,15 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if e.Name == "" || e.Op == 0 {
 				continue
 			}
+			w.lock.Lock()
 			if err := w.isExluded(e.Name); err != nil {
+				w.lock.Unlock()
 				if err == errExcluded {
 					continue // Object is excluded from watcher, don't notify
 				}
 				return fmt.Errorf("isExluded: %w", err)
 			}
+			w.lock.Unlock()
 			switch e.Op {
 			case fsnotify.Create, fsnotify.Remove, fsnotify.Rename:
 				if w.isDirEvent(e) {
