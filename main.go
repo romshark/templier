@@ -123,7 +123,9 @@ func main() {
 			// Use different debouncer for .templ files
 			debounce = debouncedTempl
 		}
-		debounce(func() { onFileChanged(ctx, e) })
+		debounce(func() {
+			onFileChanged(ctx, e)
+		})
 	})
 	if err != nil {
 		fmt.Printf("🤖 ERR: initializing file watcher: %v", err)
@@ -210,8 +212,7 @@ func runStateTracker() {
 			for ch := range m {
 				select {
 				case ch <- bytesMsgReload:
-				default:
-					// Ignore unresponsive listeners
+				default: // Ignore unresponsive listeners
 				}
 			}
 		}
@@ -366,8 +367,8 @@ func onFileChanged(ctx context.Context, e fsnotify.Event) {
 		runTemplGenerate(ctx, e.Name)
 
 	default:
-		switch currentState.Load().(State).Type {
-		case StateTypeErrTempl, StateTypeErrGolangCILint:
+		if currentState.Load().(State).Type == StateTypeErrTempl {
+			// A templ template is currently broken, don't continue.
 			return
 		}
 
