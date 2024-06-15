@@ -14,15 +14,8 @@ import (
 )
 
 func TestWatcher(t *testing.T) {
-	notifications := make(chan fsnotify.Event)
-	base := t.TempDir()
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
-		notifications <- e
-	})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, w.Close()) }()
-
-	go func() { require.NoError(t, w.Run(context.Background())) }()
+	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	w := runNewWatcher(t, base, notifications)
 
 	// Create a sub-directory that exists even before Run
 	MustMkdir(t, base, "existing-subdir")
@@ -136,38 +129,38 @@ func TestWatcher(t *testing.T) {
 	})
 }
 
-func TestWatcherClosed(t *testing.T) {
+func TestWatcherRunCancelContext(t *testing.T) {
 	base := t.TempDir()
 	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
 	require.NoError(t, err)
 
+	chErr := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		require.ErrorIs(t, w.Run(ctx), context.Canceled)
-	}()
-	require.NoError(t, w.Add(t.TempDir()))
-	cancel()  // Close
-	wg.Wait() // Wait for Run to cancel
+	go func() { chErr <- w.Run(ctx) }()
+	require.NoError(t, w.Add(base))
+
+	ExpectWatched(t, w, []string{base})
+
+	cancel()
+	require.ErrorIs(t, <-chErr, context.Canceled)
 
 	require.ErrorIs(t, w.Add("new"), watcher.ErrClosed)
 	require.ErrorIs(t, w.Remove("new"), watcher.ErrClosed)
 	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrClosed)
 	require.ErrorIs(t, w.Ignore(".ignored"), watcher.ErrClosed)
-
 	ExpectWatched(t, w, []string{})
+}
+
+func TestWatcherErrRunning(t *testing.T) {
+	base := t.TempDir()
+	w := runNewWatcher(t, base, nil)
+
+	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrRunning)
 }
 
 func TestWatcherAdd_AlreadyWatched(t *testing.T) {
 	base := t.TempDir()
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+	w := runNewWatcher(t, base, nil)
 
 	ExpectWatched(t, w, []string{})
 	require.NoError(t, w.Add(base))
@@ -178,12 +171,7 @@ func TestWatcherAdd_AlreadyWatched(t *testing.T) {
 
 func TestWatcherRemove(t *testing.T) {
 	base := t.TempDir()
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+	w := runNewWatcher(t, base, nil)
 
 	MustMkdir(t, base, "sub")
 	MustMkdir(t, base, "sub", "subsub")
@@ -219,19 +207,11 @@ func TestWatcherRemove(t *testing.T) {
 func TestWatcherIgnore(t *testing.T) {
 	base := t.TempDir()
 	MustMkdir(t, base, ".hidden")
-
-	notification := make(chan fsnotify.Event, 1)
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
-		notification <- e
-	})
-	require.NoError(t, err)
+	notifications := make(chan fsnotify.Event, 1)
+	w := runNewWatcher(t, base, notifications)
 
 	ignored := make(chan fsnotify.Event, 2)
 	w.SetIgnoredChan(ignored)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
 
 	require.NoError(t, w.Add(base))
 	require.NoError(t, w.Add(filepath.Join(base, ".hidden")))
@@ -271,16 +251,8 @@ func TestWatcherIgnore(t *testing.T) {
 }
 
 func TestWatcherUnignore(t *testing.T) {
-	base := t.TempDir()
-	notification := make(chan fsnotify.Event)
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
-		notification <- e
-	})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	w := runNewWatcher(t, base, notifications)
 
 	require.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{base})
@@ -295,7 +267,7 @@ func TestWatcherUnignore(t *testing.T) {
 	require.Equal(t, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, ".hidden"),
-	}, <-notification)
+	}, <-notifications)
 	ExpectWatched(t, w, []string{base, filepath.Join(base, ".hidden")})
 }
 
@@ -335,4 +307,53 @@ func MustRename(t *testing.T, from, to string) {
 	t.Helper()
 	err := os.Rename(from, to)
 	require.NoError(t, err)
+}
+
+// TestConcurrency requires go test -race
+func TestConcurrency(t *testing.T) {
+	base := t.TempDir()
+	w := runNewWatcher(t, base, nil)
+
+	var wg sync.WaitGroup
+	wg.Add(5)
+	go func() { defer wg.Done(); panicOnErr(w.Ignore(".ignored")) }()
+	go func() { defer wg.Done(); w.Unignore(".ignored") }()
+	go func() { defer wg.Done(); panicOnErr(w.Add(base)) }()
+	go func() { defer wg.Done(); panicOnErr(w.Remove(base)) }()
+	go func() { defer wg.Done(); w.SetIgnoredChan(nil) }()
+	wg.Wait()
+}
+
+func runNewWatcher(
+	t *testing.T, baseDir string, notify chan<- fsnotify.Event,
+) *watcher.Watcher {
+	t.Helper()
+	w, err := watcher.New(baseDir, func(ctx context.Context, e fsnotify.Event) {
+		if notify != nil {
+			notify <- e
+		}
+	})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	t.Cleanup(func() {
+		require.NoError(t, w.Close())
+		wg.Wait()
+	})
+	go func() {
+		defer wg.Done()
+		err := w.Run(context.Background())
+		if err == nil || err == watcher.ErrClosed {
+			return
+		}
+		panic(err)
+	}()
+	return w
+}
+
+func panicOnErr(err error) {
+	if err != nil {
+		panic(err)
+	}
 }

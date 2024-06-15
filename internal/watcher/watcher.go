@@ -17,14 +17,24 @@ import (
 // Watcher is a recursive file watcher.
 type Watcher struct {
 	lock        sync.Mutex
+	runnerStart sync.WaitGroup
 	baseDir     string
 	watchedDirs map[string]struct{}
 	exclude     map[string]glob.Glob
 	onChange    func(ctx context.Context, e fsnotify.Event)
 	watcher     *fsnotify.Watcher
 	ignored     atomic.Value // chan<- fsnotify.Event
-	closed      bool
+	close       chan struct{}
+	state       state
 }
+
+type state int8
+
+const (
+	_ state = iota
+	stateClosed
+	stateRunning
+)
 
 // New creates a new file watcher that executes onChange for any
 // remove/create/change/chmod filesystem event.
@@ -38,23 +48,29 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	return &Watcher{
+	w := &Watcher{
 		baseDir:     baseDir,
 		watchedDirs: make(map[string]struct{}),
 		exclude:     make(map[string]glob.Glob),
 		onChange:    onChange,
 		watcher:     watcher,
-	}, nil
+		close:       make(chan struct{}),
+	}
+	w.runnerStart.Add(1)
+	return w, nil
 }
 
-var ErrClosed = errors.New("closed")
+var (
+	ErrClosed  = errors.New("closed")
+	ErrRunning = errors.New("watcher is already running")
+)
 
 // RangeWatchedDirs calls fn for every currently watched directory.
 // Noop if the watcher is closed.
 func (w *Watcher) RangeWatchedDirs(fn func(path string) (continueIter bool)) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.closed {
+	if w.state != stateRunning || w.state == stateClosed {
 		return
 	}
 	for p := range w.watchedDirs {
@@ -69,27 +85,43 @@ func (w *Watcher) RangeWatchedDirs(fn func(path string) (continueIter bool)) {
 func (w *Watcher) Close() error {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.closed {
+	if w.state != stateRunning || w.state == stateClosed {
 		return nil
 	}
-	w.closed = true
+	close(w.close)
 	return w.watcher.Close()
 }
 
-// Run runs the watcher.
-// Returns ErrClosed if already closed.
+// Run runs the watcher. Can only be called once.
+// Returns ErrClosed if closed, or ErrRunning if already running.
 func (w *Watcher) Run(ctx context.Context) error {
 	w.lock.Lock()
-	if w.closed {
+	switch w.state {
+	case stateClosed:
 		w.lock.Unlock()
 		return ErrClosed
+	case stateRunning:
+		w.lock.Unlock()
+		return ErrRunning
 	}
+	w.state = stateRunning
 	w.lock.Unlock()
+
+	w.runnerStart.Done() // Signal runner readiness
 
 	defer w.Close()
 	for {
 		select {
+		case <-w.close:
+			w.lock.Lock()
+			w.state = stateClosed
+			w.lock.Unlock()
+			return ErrClosed // Close called
 		case <-ctx.Done():
+			w.lock.Lock()
+			close(w.close)
+			w.state = stateClosed
+			w.lock.Unlock()
 			return ctx.Err() // Watching canceled
 		case e := <-w.watcher.Events:
 			switch e.Op {
@@ -136,17 +168,18 @@ func (w *Watcher) SetIgnoredChan(c chan<- fsnotify.Event) { w.ignored.Store(c) }
 
 // Ignore adds an ignore glob filter and removes all currently
 // watched directories that match the expression.
-// Returns ErrClosed if the watcher is closed.
+// Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Ignore(globExpression string) error {
 	g, err := glob.Compile(globExpression)
 	if err != nil {
 		return err
 	}
 
+	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
-	if w.closed {
+	if w.state == stateClosed {
 		return ErrClosed
 	}
 
@@ -168,22 +201,24 @@ func (w *Watcher) Ignore(globExpression string) error {
 }
 
 // Unignore removes an ignore glob filter.
-// Noop if filter doesn't exist or the watcher is closed.
+// Noop if filter doesn't exist or the watcher is closed or not running.
 func (w *Watcher) Unignore(globExpression string) {
+	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.closed {
+	if w.state == stateClosed {
 		return
 	}
 	delete(w.exclude, globExpression)
 }
 
 // Add starts watching the directory and all of its subdirectories recursively.
-// Returns ErrClosed if the watcher is already closed.
+// Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Add(dir string) error {
+	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.closed {
+	if w.state == stateClosed {
 		return ErrClosed
 	}
 	err := forEachDir(dir, func(dir string) error {
@@ -207,11 +242,12 @@ func (w *Watcher) Add(dir string) error {
 var errStopTraversal = errors.New("stop recursive traversal")
 
 // Remove stops watching the directory and all of its subdirectories recursively.
-// Returns ErrClosed if the watcher is already closed.
+// Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Remove(dir string) error {
+	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.closed {
+	if w.state == stateClosed {
 		return ErrClosed
 	}
 	return w.remove(dir)
