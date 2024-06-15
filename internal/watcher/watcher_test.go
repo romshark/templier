@@ -207,11 +207,8 @@ func TestWatcherRemove(t *testing.T) {
 func TestWatcherIgnore(t *testing.T) {
 	base := t.TempDir()
 	MustMkdir(t, base, ".hidden")
-	notifications := make(chan fsnotify.Event, 1)
+	notifications := make(chan fsnotify.Event, 2)
 	w := runNewWatcher(t, base, notifications)
-
-	ignored := make(chan fsnotify.Event, 2)
-	w.SetIgnoredChan(ignored)
 
 	require.NoError(t, w.Add(base))
 	require.NoError(t, w.Add(filepath.Join(base, ".hidden")))
@@ -222,32 +219,31 @@ func TestWatcherIgnore(t *testing.T) {
 	// Expect .hidden watchers to be stopped
 	ExpectWatched(t, w, []string{base})
 
+	// Expect the following events to be ignored.
 	MustCreateFile(t, base, ".ignore")
-	{
-		// I don't know why a CREATE event for .hidden is supplied even
-		// though it was created *after* the setup of the watcher 🤷🏻‍♂️
-		expectedPaths := map[string]struct{}{
-			filepath.Join(base, ".hidden"): {},
-			filepath.Join(base, ".ignore"): {},
-		}
+	MustMkdir(t, base, ".ignorenewdir")
+	MustCreateFile(t, base, ".hidden", "ignored")
 
-		e := <-ignored
-		require.Equal(t, fsnotify.Create, e.Op)
-		require.Contains(t, expectedPaths, e.Name)
-		delete(expectedPaths, e.Name)
+	// Expect only those events to end up in notifications.
+	MustCreateFile(t, base, "notignored")
+	MustMkdir(t, base, "notignoreddir")
 
-		e = <-ignored
-		require.Equal(t, fsnotify.Create, e.Op)
-		require.Contains(t, expectedPaths, e.Name)
-	}
-
-	MustMkdir(t, base, ".ignore_new_dir")
 	require.Equal(t, fsnotify.Event{
 		Op:   fsnotify.Create,
-		Name: filepath.Join(base, ".ignore_new_dir"),
-	}, <-ignored)
+		Name: filepath.Join(base, "notignored"),
+	}, <-notifications)
 
-	ExpectWatched(t, w, []string{base})
+	require.Equal(t, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "notignoreddir"),
+	}, <-notifications)
+
+	ExpectWatched(t, w, []string{
+		base,
+		filepath.Join(base, "notignoreddir"),
+	})
+
+	require.Len(t, notifications, 0)
 }
 
 func TestWatcherUnignore(t *testing.T) {
@@ -315,12 +311,11 @@ func TestConcurrency(t *testing.T) {
 	w := runNewWatcher(t, base, nil)
 
 	var wg sync.WaitGroup
-	wg.Add(5)
+	wg.Add(4)
 	go func() { defer wg.Done(); panicOnErr(w.Ignore(".ignored")) }()
 	go func() { defer wg.Done(); w.Unignore(".ignored") }()
 	go func() { defer wg.Done(); panicOnErr(w.Add(base)) }()
 	go func() { defer wg.Done(); panicOnErr(w.Remove(base)) }()
-	go func() { defer wg.Done(); w.SetIgnoredChan(nil) }()
 	wg.Wait()
 }
 

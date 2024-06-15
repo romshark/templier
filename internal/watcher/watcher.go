@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
@@ -23,7 +22,6 @@ type Watcher struct {
 	exclude     map[string]glob.Glob
 	onChange    func(ctx context.Context, e fsnotify.Event)
 	watcher     *fsnotify.Watcher
-	ignored     atomic.Value // chan<- fsnotify.Event
 	close       chan struct{}
 	state       state
 }
@@ -124,8 +122,14 @@ func (w *Watcher) Run(ctx context.Context) error {
 			w.lock.Unlock()
 			return ctx.Err() // Watching canceled
 		case e := <-w.watcher.Events:
-			if e.Name == "" {
+			if e.Name == "" || e.Op == 0 {
 				continue
+			}
+			if err := w.isExluded(e.Name); err != nil {
+				if err == errExcluded {
+					continue // Object is excluded from watcher, don't notify
+				}
+				return fmt.Errorf("isExluded: %w", err)
 			}
 			switch e.Op {
 			case fsnotify.Create, fsnotify.Remove, fsnotify.Rename:
@@ -144,17 +148,6 @@ func (w *Watcher) Run(ctx context.Context) error {
 						}
 					}
 				}
-			case 0: // Unknown event type
-				continue
-			}
-			if err := w.isExluded(e.Name); err != nil {
-				if err == errExcluded {
-					if c := w.ignored.Load(); c != nil {
-						c.(chan<- fsnotify.Event) <- e
-					}
-					continue // Object is excluded from watcher, don't notify
-				}
-				return fmt.Errorf("isExluded: %w", err)
 			}
 			w.onChange(ctx, e)
 		case err := <-w.watcher.Errors:
@@ -164,10 +157,6 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 }
-
-// SetIgnoredChan should only be used for testing purposes,
-// it sets the channel ignored fsnotify events are written to.
-func (w *Watcher) SetIgnoredChan(c chan<- fsnotify.Event) { w.ignored.Store(c) }
 
 // Ignore adds an ignore glob filter and removes all currently
 // watched directories that match the expression.
