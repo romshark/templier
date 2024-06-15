@@ -132,18 +132,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	go func() {
+		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			panic(fmt.Errorf("running file watcher:%w", err))
+		}
+	}()
+
 	for _, expr := range config.App.Exclude {
 		if err := watcher.Ignore(expr); err != nil {
 			fmt.Printf("🤖 ERR: adding ignore filter to watcher (%q): %v", expr, err)
 			os.Exit(1)
 		}
 	}
-
-	go func() {
-		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			panic(fmt.Errorf("running file watcher:%w", err))
-		}
-	}()
 
 	if err := watcher.Add(config.App.dirSrcRootAbsolute); err != nil {
 		fmt.Printf("🤖 ERR: setting up file watcher for app.dir-src-root(%q): %v",
