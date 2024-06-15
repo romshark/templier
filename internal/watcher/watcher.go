@@ -124,6 +124,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 			w.lock.Unlock()
 			return ctx.Err() // Watching canceled
 		case e := <-w.watcher.Events:
+			if e.Name == "" {
+				continue
+			}
 			switch e.Op {
 			case fsnotify.Create, fsnotify.Remove, fsnotify.Rename:
 				if w.isDirEvent(e) {
