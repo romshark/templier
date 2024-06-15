@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/romshark/yamagiconf"
 )
 
@@ -23,6 +24,9 @@ type Config struct {
 		DirSrcRoot string `yaml:"dir-src-root" validate:"dirpath,required"`
 
 		dirSrcRootAbsolute string // Initialized from DirSrcRoot
+
+		// Exclude defines glob expressions to match files exluded from watching.
+		Exclude ExludeFiles `yaml:"exclude"`
 
 		// DirCmd is the server cmd directory containing the `main` function.
 		DirCmd string `yaml:"dir-cmd" validate:"dirpath,required"`
@@ -46,6 +50,7 @@ type Config struct {
 	// Verbose doesn't affect app server logs.
 	Verbose bool `yaml:"verbose"`
 
+	// Debounce is the file watcher debounce duration.
 	Debounce struct {
 		// Templ is the template regeneration debounce duration.
 		Templ time.Duration `yaml:"templ"`
@@ -73,6 +78,17 @@ type Config struct {
 		Cert string `yaml:"cert" validate:"filepath,required"`
 		Key  string `yaml:"key" validate:"filepath,required"`
 	} `yaml:"tls"`
+}
+
+type ExludeFiles []string
+
+func (e ExludeFiles) Validate() error {
+	for i, expr := range config.App.Exclude {
+		if _, err := glob.Compile(expr); err != nil {
+			return fmt.Errorf("at index %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 func mustParseConfig() {

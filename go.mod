@@ -6,6 +6,7 @@ require (
 	github.com/a-h/templ v0.2.707
 	github.com/fatih/color v1.17.0
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/gobwas/glob v0.2.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/romshark/yamagiconf v0.10.4
 	github.com/stretchr/testify v1.9.0

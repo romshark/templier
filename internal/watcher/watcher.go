@@ -8,29 +8,40 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gobwas/glob"
 )
 
 // Watcher is a recursive file watcher.
 type Watcher struct {
 	lock        sync.Mutex
-	closed      bool
-	watchedDirs map[string]struct{} // dir path -> closer channel
+	baseDir     string
+	watchedDirs map[string]struct{}
+	exclude     map[string]glob.Glob
 	onChange    func(ctx context.Context, e fsnotify.Event)
 	watcher     *fsnotify.Watcher
+	ignored     atomic.Value // chan<- fsnotify.Event
+	closed      bool
 }
 
 // New creates a new file watcher that executes onChange for any
 // remove/create/change/chmod filesystem event.
 // onChange will receive the ctx that was passed to Run.
-func New(onChange func(ctx context.Context, e fsnotify.Event)) (*Watcher, error) {
+// baseDir is used as the base path for relative ignore expressions.
+func New(
+	baseDir string,
+	onChange func(ctx context.Context, e fsnotify.Event),
+) (*Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 	return &Watcher{
+		baseDir:     baseDir,
 		watchedDirs: make(map[string]struct{}),
+		exclude:     make(map[string]glob.Glob),
 		onChange:    onChange,
 		watcher:     watcher,
 	}, nil
@@ -98,8 +109,17 @@ func (w *Watcher) Run(ctx context.Context) error {
 						}
 					}
 				}
-			case 0:
+			case 0: // Unknown event type
 				continue
+			}
+			if err := w.isExluded(e.Name); err != nil {
+				if err == errExcluded {
+					if c := w.ignored.Load(); c != nil {
+						c.(chan<- fsnotify.Event) <- e
+					}
+					continue // Object is excluded from watcher, don't notify
+				}
+				return fmt.Errorf("isExluded: %w", err)
 			}
 			w.onChange(ctx, e)
 		case err := <-w.watcher.Errors:
@@ -108,6 +128,54 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// SetIgnoredChan should only be used for testing purposes,
+// it sets the channel ignored fsnotify events are written to.
+func (w *Watcher) SetIgnoredChan(c chan<- fsnotify.Event) { w.ignored.Store(c) }
+
+// Ignore adds an ignore glob filter and removes all currently
+// watched directories that match the expression.
+// Returns ErrClosed if the watcher is closed.
+func (w *Watcher) Ignore(globExpression string) error {
+	g, err := glob.Compile(globExpression)
+	if err != nil {
+		return err
+	}
+
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if w.closed {
+		return ErrClosed
+	}
+
+	w.exclude[globExpression] = g
+	for dir := range w.watchedDirs {
+		if dir == w.baseDir {
+			continue
+		}
+		err := w.isExluded(dir)
+		if err == errExcluded {
+			if err := w.remove(dir); err != nil {
+				return fmt.Errorf("removing %q: %w", dir, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("checking exclusion for %q: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// Unignore removes an ignore glob filter.
+// Noop if filter doesn't exist or the watcher is closed.
+func (w *Watcher) Unignore(globExpression string) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	if w.closed {
+		return
+	}
+	delete(w.exclude, globExpression)
 }
 
 // Add starts watching the directory and all of its subdirectories recursively.
@@ -119,19 +187,24 @@ func (w *Watcher) Add(dir string) error {
 		return ErrClosed
 	}
 	err := forEachDir(dir, func(dir string) error {
+		if err := w.isExluded(dir); err != nil {
+			if err == errExcluded {
+				return nil // Directory is exluded from watching.
+			}
+		}
 		if _, ok := w.watchedDirs[dir]; ok {
-			return errAlreadyWatched // Directory already watched
+			return errStopTraversal // Directory already watched.
 		}
 		w.watchedDirs[dir] = struct{}{}
 		return w.watcher.Add(dir)
 	})
-	if err == errAlreadyWatched {
+	if err == errStopTraversal {
 		return nil
 	}
 	return err
 }
 
-var errAlreadyWatched = errors.New("directory already watched")
+var errStopTraversal = errors.New("stop recursive traversal")
 
 // Remove stops watching the directory and all of its subdirectories recursively.
 // Returns ErrClosed if the watcher is already closed.
@@ -141,7 +214,10 @@ func (w *Watcher) Remove(dir string) error {
 	if w.closed {
 		return ErrClosed
 	}
+	return w.remove(dir)
+}
 
+func (w *Watcher) remove(dir string) error {
 	if _, ok := w.watchedDirs[dir]; !ok {
 		return nil
 	}
@@ -159,7 +235,6 @@ func (w *Watcher) Remove(dir string) error {
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -172,6 +247,23 @@ func (w *Watcher) removeWatcher(dir string) error {
 	}
 	return nil
 }
+
+// isExluded returns errExcluded if path is excluded, otherwise returns nil.
+func (w *Watcher) isExluded(path string) error {
+	relPath, err := filepath.Rel(w.baseDir, path)
+	if err != nil {
+		return fmt.Errorf("determining relative path (base: %q; path: %q): %w",
+			w.baseDir, path, err)
+	}
+	for _, x := range w.exclude {
+		if x.Match(relPath) {
+			return errExcluded
+		}
+	}
+	return nil
+}
+
+var errExcluded = errors.New("path excluded")
 
 func (w *Watcher) isDirEvent(e fsnotify.Event) bool {
 	switch e.Op {

@@ -117,19 +117,26 @@ func main() {
 	debouncerGo, debouncedGo := debounce.NewSync(config.Debounce.Go)
 	go debouncerGo(ctx)
 
-	watcher, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {
-		debounce := debouncedGo
-		if isTemplFile(e.Name) {
-			// Use different debouncer for .templ files
-			debounce = debouncedTempl
-		}
-		debounce(func() {
-			onFileChanged(ctx, e)
+	watcher, err := watcher.New(
+		config.App.dirSrcRootAbsolute,
+		func(ctx context.Context, e fsnotify.Event) {
+			debounce := debouncedGo
+			if isTemplFile(e.Name) {
+				// Use different debouncer for .templ files
+				debounce = debouncedTempl
+			}
+			debounce(func() { onFileChanged(ctx, e) })
 		})
-	})
 	if err != nil {
 		fmt.Printf("🤖 ERR: initializing file watcher: %v", err)
 		os.Exit(1)
+	}
+
+	for _, expr := range config.App.Exclude {
+		if err := watcher.Ignore(expr); err != nil {
+			fmt.Printf("🤖 ERR: adding ignore filter to watcher (%q): %v", expr, err)
+			os.Exit(1)
+		}
 	}
 
 	go func() {

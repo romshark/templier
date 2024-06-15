@@ -37,6 +37,11 @@ app:
   # app.dir-src-root defines the path to the Go module source root directory.
   dir-src-root: ./
 
+  # app.exclude defines glob filter expressions relative to app.dir-src-root
+  # to match files exluded from watching.
+  exclude:
+    - .* # all hidden files and directories
+
   # app.dir-cmd defines the path to the main package directory
   # within the app source directory.
   dir-cmd: ./cmd/server/

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/romshark/templier/internal/watcher"
 
@@ -13,16 +14,15 @@ import (
 )
 
 func TestWatcher(t *testing.T) {
-	notifications := make(chan fsnotify.Event, 10) // Expect 10 events
-	w, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {
+	notifications := make(chan fsnotify.Event)
+	base := t.TempDir()
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
 		notifications <- e
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, w.Close()) }()
 
 	go func() { require.NoError(t, w.Run(context.Background())) }()
-
-	base := t.TempDir()
 
 	// Create a sub-directory that exists even before Run
 	MustMkdir(t, base, "existing-subdir")
@@ -34,7 +34,7 @@ func TestWatcher(t *testing.T) {
 		filepath.Join(base, "existing-subdir"),
 	})
 
-	events := make([]fsnotify.Event, cap(notifications))
+	events := make([]fsnotify.Event, 10)
 
 	// After every operation, wait for fsnotify to trigger,
 	// otherwise events might get lost.
@@ -137,48 +137,49 @@ func TestWatcher(t *testing.T) {
 }
 
 func TestWatcherClosed(t *testing.T) {
-	w, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {})
+	base := t.TempDir()
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
 	require.NoError(t, w.Add(t.TempDir()))
-	cancel() // Close
+	cancel()                          // Close
+	time.Sleep(10 * time.Millisecond) // Wait for Run to cancel
 
-	tempDir := t.TempDir()
-
-	require.ErrorIs(t, w.Add(filepath.Join(tempDir, "new")), watcher.ErrClosed)
-	require.ErrorIs(t, w.Remove(filepath.Join(tempDir, "new")), watcher.ErrClosed)
+	require.ErrorIs(t, w.Add("new"), watcher.ErrClosed)
+	require.ErrorIs(t, w.Remove("new"), watcher.ErrClosed)
 	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrClosed)
+	require.ErrorIs(t, w.Ignore(".ignored"), watcher.ErrClosed)
 
 	ExpectWatched(t, w, []string{})
 }
 
 func TestWatcherAdd_AlreadyWatched(t *testing.T) {
-	w, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {})
+	base := t.TempDir()
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
 
-	tempDir := t.TempDir()
 	ExpectWatched(t, w, []string{})
-	require.NoError(t, w.Add(tempDir))
-	ExpectWatched(t, w, []string{tempDir})
-	require.NoError(t, w.Add(tempDir)) // Add again
-	ExpectWatched(t, w, []string{tempDir})
+	require.NoError(t, w.Add(base))
+	ExpectWatched(t, w, []string{base})
+	require.NoError(t, w.Add(base)) // Add again
+	ExpectWatched(t, w, []string{base})
 }
 
 func TestWatcherRemove(t *testing.T) {
-	w, err := watcher.New(func(ctx context.Context, e fsnotify.Event) {})
+	base := t.TempDir()
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
 
-	base := t.TempDir()
 	MustMkdir(t, base, "sub")
 	MustMkdir(t, base, "sub", "subsub")
 	MustMkdir(t, base, "sub", "subsub2")
@@ -208,6 +209,80 @@ func TestWatcherRemove(t *testing.T) {
 
 	require.NoError(t, w.Remove(base))
 	ExpectWatched(t, w, []string{})
+}
+
+func TestWatcherIgnore(t *testing.T) {
+	base := t.TempDir()
+	MustMkdir(t, base, ".hidden")
+
+	notification := make(chan fsnotify.Event, 1)
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
+		notification <- e
+	})
+	require.NoError(t, err)
+
+	ignored := make(chan fsnotify.Event)
+	w.SetIgnoredChan(ignored)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+
+	require.NoError(t, w.Add(base))
+	require.NoError(t, w.Add(filepath.Join(base, ".hidden")))
+
+	ExpectWatched(t, w, []string{base, filepath.Join(base, ".hidden")})
+
+	require.NoError(t, w.Ignore(".*"))
+	// Expect .hidden watchers to be stopped
+	ExpectWatched(t, w, []string{base})
+
+	MustCreateFile(t, base, ".ignore")
+	require.Equal(t, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, ".hidden"),
+	}, <-ignored)
+	require.Equal(t, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, ".ignore"),
+	}, <-ignored)
+
+	MustMkdir(t, base, ".ignore_new_dir")
+	require.Equal(t, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, ".ignore_new_dir"),
+	}, <-ignored)
+
+	ExpectWatched(t, w, []string{base})
+}
+
+func TestWatcherUnignore(t *testing.T) {
+	base := t.TempDir()
+	notification := make(chan fsnotify.Event)
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {
+		notification <- e
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+
+	require.NoError(t, w.Add(base))
+	ExpectWatched(t, w, []string{base})
+
+	{
+		p := filepath.Join(base, ".*")
+		require.NoError(t, w.Ignore(p))
+		w.Unignore(p)
+	}
+
+	MustMkdir(t, base, ".hidden")
+	require.Equal(t, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, ".hidden"),
+	}, <-notification)
+	ExpectWatched(t, w, []string{base, filepath.Join(base, ".hidden")})
 }
 
 func ExpectWatched(t *testing.T, w *watcher.Watcher, expect []string) {
