@@ -43,7 +43,7 @@ which is great, but Templiér provides even better developer experience:
 - 🖥️ Templiér shows Go compiler and [golangci-lint](https://golangci-lint.run/) errors
   (if any) in the browser. Templ's watcher just prints errors to the stdout and
   continues to display the last valid state.
-- ⚙️ Templiér provides more configuration options (TLS, debounce, etc.).
+- ⚙️ Templiér provides more configuration options (TLS, debounce, exclude globs, etc.).
 
 Other [alternatives](https://templ.guide/commands-and-tools/live-reload#built-in) to
 templ's watcher also didn't fulfill my needs at the time of writing.
