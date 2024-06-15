@@ -3,7 +3,7 @@
 # connection refused errors while proxying.
 proxy-timeout: 10s
 
-# lint enables golangci-lint when true
+# lint enables golangci-lint when true.
 lint: true
 
 # templier-host defines what host address to run Templiér on.
@@ -11,6 +11,10 @@ templier-host: "your-application:11000"
 
 # print-js-debug-logs enables Templiér debug logs in the browser.
 print-js-debug-logs: true
+
+# verbose enables verbose console logs when true.
+# This doesn't affect app server logs.
+verbose: true
 
 debounce:
   # debounce.templ defines how long to wait for other .templ file changes
@@ -21,12 +25,12 @@ debounce:
   # before triggering server rebuild and restart.
   go: 50ms
 
-# tls can be set to null to serve HTTP instead of HTTPS
+# tls can be set to null to serve HTTP instead of HTTPS.
 tls:
-  # tls.cert defines the TLS certificate file path
+  # tls.cert defines the TLS certificate file path.
   cert: ./your-application.crt.pem
 
-  # tls.keys defines the TLS private key file path
+  # tls.keys defines the TLS private key file path.
   key: ./your-application.key.pem
 
 app:

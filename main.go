@@ -136,7 +136,6 @@ func main() {
 		}
 	}()
 
-	fmt.Println("ADD", config.App.dirSrcRootAbsolute)
 	if err := watcher.Add(config.App.dirSrcRootAbsolute); err != nil {
 		fmt.Printf("🤖 ERR: setting up file watcher for app.dir-src-root(%q): %v",
 			config.App.dirSrcRootAbsolute, err)
@@ -162,10 +161,16 @@ func main() {
 	chStopServer <- struct{}{}
 }
 
-var currentState atomic.Value
+var (
+	currentState atomic.Value
+	// fileChangedLock prevents more than one rebuilder goroutine at a time.
+	fileChangedLock   sync.Mutex
+	rerunTriggerStart atomic.Value
+)
 
 func init() {
 	currentState.Store(State{Type: StateTypeOK})
+	rerunTriggerStart.Store(time.Now())
 }
 
 // runStateTracker tracks the current state of the env and broadcasts updates.
@@ -276,15 +281,24 @@ AWAIT_COMMAND:
 	for {
 		select {
 		case binaryPath := <-chRerunServer:
+			start := time.Now()
 			stopServer()
+			if config.Verbose {
+				fmt.Print("🤖 stopped server (")
+				fRed.Print(durSince(start))
+				fmt.Println(")")
+			}
+			start = time.Now()
 			latestBinaryPath = binaryPath
 			c := exec.Command(binaryPath)
 			c.Args = config.App.Flags
 			c.Stdout, c.Stderr = os.Stdout, os.Stderr
 			latestSrvCmd = c
-			fmt.Print("🤖 restarting ")
-			fGreen.Print("cmd/server")
-			fmt.Println("...")
+			if config.Verbose {
+				fmt.Print("🤖 restarting ")
+				fGreen.Print("cmd/server")
+				fmt.Println("...")
+			}
 			if err := c.Start(); err != nil {
 				fRed.Print("🤖 running cmd/server: ")
 				fRed.Println(err.Error())
@@ -300,13 +314,21 @@ AWAIT_COMMAND:
 					http.MethodOptions, config.App.Host, http.NoBody,
 				)
 				if err != nil {
-					fmt.Println("🤖 ERR: initializing preflight request:", err)
+					fRed.Println("🤖 ERR: initializing preflight request:", err)
 				}
 				_, err = healtCheckClient.Do(r)
 				if err == nil {
 					break // Server is ready to receive requests
 				}
 				time.Sleep(ServerHealthPreflightWaitInterval)
+			}
+			if config.Verbose {
+				rerunStart := rerunTriggerStart.Load().(time.Time)
+				fmt.Print("🤖 restarted (")
+				fRed.Print(durSince(start))
+				fmt.Print("; total: ")
+				fRed.Print(durSince(rerunStart))
+				fmt.Println(")")
 			}
 			// Notify all clients to reload the page
 			chState <- State{Type: StateTypeOK} // OK
@@ -315,9 +337,6 @@ AWAIT_COMMAND:
 		}
 	}
 }
-
-// fileChangedLock prevents more than one rebuilder goroutine at a time.
-var fileChangedLock sync.Mutex
 
 func onFileChanged(ctx context.Context, e fsnotify.Event) {
 	switch {
@@ -337,10 +356,12 @@ func onFileChanged(ctx context.Context, e fsnotify.Event) {
 			return
 		}
 
-		fmt.Print("🤖 template file ")
-		fmt.Print(operation)
-		fmt.Print(": ")
-		fCyanUnderline.Println(e.Name)
+		if config.Verbose {
+			fmt.Print("🤖 template file ")
+			fmt.Print(operation)
+			fmt.Print(": ")
+			fCyanUnderline.Println(e.Name)
+		}
 
 		runTemplGenerate(ctx, e.Name)
 
@@ -367,12 +388,15 @@ func onFileChanged(ctx context.Context, e fsnotify.Event) {
 			return
 		}
 
-		fmt.Print("🤖 file ")
-		fmt.Print(operation)
-		fmt.Print(": ")
-		fBlueUnderline.Println(e.Name)
+		if config.Verbose {
+			fmt.Print("🤖 file ")
+			fmt.Print(operation)
+			fmt.Print(": ")
+			fBlueUnderline.Println(e.Name)
+		}
 
 		func() {
+			rerunTriggerStart.Store(time.Now())
 			if config.Lint && !runGolangCILint(ctx) {
 				return
 			}
@@ -386,7 +410,7 @@ func onFileChanged(ctx context.Context, e fsnotify.Event) {
 func generateAllTemplates(ctx context.Context) (ok bool) {
 	c := exec.CommandContext(ctx, "templ", "generate", config.App.DirSrcRoot)
 	if buf, err := c.CombinedOutput(); err != nil {
-		fRed.Printf("generating all templates in '%s': ", config.App.DirSrcRoot)
+		fRed.Printf("🤖 generating all templates in '%s': ", config.App.DirSrcRoot)
 		chState <- State{Type: StateTypeErrTempl, Msg: string(buf)}
 		return false
 	}
@@ -396,7 +420,7 @@ func generateAllTemplates(ctx context.Context) (ok bool) {
 func runTemplGenerate(ctx context.Context, filePath string) (ok bool) {
 	c := exec.CommandContext(ctx, "templ", "generate", filePath)
 	if buf, err := c.CombinedOutput(); err != nil {
-		fRed.Printf("generating '%s': ", filePath)
+		fRed.Printf("🤖 generating '%s': ", filePath)
 		chState <- State{Type: StateTypeErrTempl, Msg: string(buf)}
 		return false
 	}
@@ -404,6 +428,14 @@ func runTemplGenerate(ctx context.Context, filePath string) (ok bool) {
 }
 
 func runGolangCILint(ctx context.Context) (ok bool) {
+	start := time.Now()
+	if config.Verbose {
+		defer func() {
+			fmt.Print("🤖 linted (")
+			fRed.Print(durSince(start))
+			fmt.Println(")")
+		}()
+	}
 	c := exec.CommandContext(ctx, "golangci-lint", "run", config.App.DirSrcRoot+"/...")
 	if buf, err := c.CombinedOutput(); err != nil {
 		fRed.Println("🤖 failed running golangci-lint:", err)
@@ -414,6 +446,7 @@ func runGolangCILint(ctx context.Context) (ok bool) {
 }
 
 func buildAndRerunServer(ctx context.Context) (ok bool) {
+	start := time.Now()
 	if err := os.MkdirAll(config.serverOutPath, os.ModePerm); err != nil {
 		panic(fmt.Errorf("creating go binary output file path in %q: %w",
 			config.serverOutPath, err))
@@ -435,6 +468,11 @@ func buildAndRerunServer(ctx context.Context) (ok bool) {
 		chState <- State{Type: StateTypeErrCompile, Msg: string(buf)}
 		return false
 	}
+	if config.Verbose {
+		fmt.Printf("🤖 compiled cmd/server (")
+		fRed.Print(durSince(start))
+		fmt.Println(")")
+	}
 	chRerunServer <- binaryPath
 	return true
 }
@@ -446,4 +484,19 @@ func isTemplFile(filePath string) bool {
 func makeUniqueServerOutPath(basePath string) string {
 	tm := time.Now()
 	return path.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
+}
+
+func durSince(since time.Time) string {
+	d := time.Since(since)
+	switch {
+	case d < time.Microsecond:
+		return fmt.Sprintf("%.2fns", float64(d)/float64(time.Nanosecond))
+	case d < time.Millisecond:
+		return fmt.Sprintf("%.2fµs", float64(d)/float64(time.Microsecond))
+	case d < time.Second:
+		return fmt.Sprintf("%.2fms", float64(d)/float64(time.Millisecond))
+	case d < time.Minute:
+		return fmt.Sprintf("%.2fs", float64(d)/float64(time.Second))
+	}
+	return d.String()
 }

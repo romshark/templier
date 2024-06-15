@@ -42,6 +42,10 @@ type Config struct {
 		Host string `yaml:"host"  validate:"url,required"`
 	} `yaml:"app"`
 
+	// Verbose enables verbose console logs when true.
+	// Verbose doesn't affect app server logs.
+	Verbose bool `yaml:"verbose"`
+
 	Debounce struct {
 		// Templ is the template regeneration debounce duration.
 		Templ time.Duration `yaml:"templ"`
