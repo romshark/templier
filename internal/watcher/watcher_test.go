@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/romshark/templier/internal/watcher"
 
@@ -142,10 +142,15 @@ func TestWatcherClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { require.ErrorIs(t, w.Run(ctx), context.Canceled) }()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.ErrorIs(t, w.Run(ctx), context.Canceled)
+	}()
 	require.NoError(t, w.Add(t.TempDir()))
-	cancel()                          // Close
-	time.Sleep(10 * time.Millisecond) // Wait for Run to cancel
+	cancel()  // Close
+	wg.Wait() // Wait for Run to cancel
 
 	require.ErrorIs(t, w.Add("new"), watcher.ErrClosed)
 	require.ErrorIs(t, w.Remove("new"), watcher.ErrClosed)
