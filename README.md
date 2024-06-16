@@ -37,7 +37,7 @@ which is great, but Templiér provides even better developer experience:
   instead it prints the compiler error output to the browser tab and keeps watching.
   Once you fixed the Go code, Templiér will reload and work as usual with no intervention.
   In contrast, templ's watcher needs to be restarted manually.
-- 📁 Templiér watches **all** file changes recursively and recompiles the server.
+- 📁 Templiér watches **all** file changes recursively (except for those that match `app.exclude`) and recompiles the server.
   Editing an embedded `.json` file in your app?
   Updating go mod? Templiér will notice and rebuild.
 - 🖥️ Templiér shows Go compiler and [golangci-lint](https://golangci-lint.run/) errors
