@@ -35,7 +35,6 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 	go func() {
 		// Read the command output
 		scanner := bufio.NewScanner(stdout)
-		fmt.Println("🎩: ", scanner.Text())
 		for scanner.Scan() {
 			b := scanner.Bytes()
 			switch {
