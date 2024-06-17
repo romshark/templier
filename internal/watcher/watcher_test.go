@@ -131,7 +131,9 @@ func TestWatcher(t *testing.T) {
 
 func TestWatcherRunCancelContext(t *testing.T) {
 	base := t.TempDir()
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) {})
+	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) error {
+		return nil
+	})
 	require.NoError(t, err)
 
 	chErr := make(chan error, 1)
@@ -323,10 +325,11 @@ func runNewWatcher(
 	t *testing.T, baseDir string, notify chan<- fsnotify.Event,
 ) *watcher.Watcher {
 	t.Helper()
-	w, err := watcher.New(baseDir, func(ctx context.Context, e fsnotify.Event) {
+	w, err := watcher.New(baseDir, func(ctx context.Context, e fsnotify.Event) error {
 		if notify != nil {
 			notify <- e
 		}
+		return nil
 	})
 	require.NoError(t, err)
 

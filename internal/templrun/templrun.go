@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/state"
 )
 
@@ -34,9 +35,9 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 	go func() {
 		// Read the command output
 		scanner := bufio.NewScanner(stdout)
+		fmt.Println("🎩: ", scanner.Text())
 		for scanner.Scan() {
 			b := scanner.Bytes()
-			fmt.Println("🎩", scanner.Text())
 			switch {
 			case bytes.HasPrefix(b, bytesPrefixErr):
 				st.SetErrTempl(scanner.Text())
@@ -45,7 +46,7 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			fmt.Printf("🤖 ERR: scanning templ watch output: %v\n", err)
+			log.Errorf("scanning templ watch output: %v", err)
 		}
 		done <- cmd.Wait()
 	}()
@@ -53,10 +54,10 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 	select {
 	case <-ctx.Done(): // Terminate templ watch gracefully.
 		if err := cmd.Process.Signal(os.Interrupt); err != nil {
-			return fmt.Errorf("🤖 ERR: interrupting templ watch process: %w", err)
+			return fmt.Errorf("interrupting templ watch process: %w", err)
 		}
 		if err := <-done; err != nil {
-			return fmt.Errorf("🤖 ERR: process did not exit cleanly: %w", err)
+			return fmt.Errorf("process did not exit cleanly: %w", err)
 		}
 	case err := <-done: // Command finished without interruption.
 		return err
@@ -68,11 +69,3 @@ var (
 	bytesPrefixErr        = []byte(`(✗) Error generating code`)
 	bytesPrefixErrCleared = []byte(`(✓) Error cleared`)
 )
-
-// func RunGen(ctx context.Context, workDir string) (string, error) {
-// 	c := exec.CommandContext(ctx, "templ", "generate")
-// 	c.Dir = workDir
-// 	var outbuf bytes.Buffer
-// 	c.Stdout = &outbuf
-// 	return outbuf.String(), c.Run()
-// }

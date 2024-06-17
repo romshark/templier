@@ -73,12 +73,8 @@ func main() {
 		}
 	}()
 
-	func() { // Initial build
-		if config.Lint {
-			go runGolangCILint(ctx, st)
-		}
-		go buildAndRerunServer(ctx, st)
-	}()
+	// Initial build
+	lintAndBuild(ctx, st)
 
 	go runTemplierServer(st, reloadInitiated, reload)
 
@@ -262,24 +258,25 @@ type FileChangeHandler struct {
 	debouncedTemplTxtChange func(fn func())
 }
 
-func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) {
+func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
 	if e.Op == fsnotify.Chmod {
-		return // Ignore chmod events.
+		return nil // Ignore chmod events.
 	}
+
 	if h.stateTracker.Get().ErrTempl != "" {
 		// A templ template is broken, don't continue.
-		return
+		return nil
 	}
 	if strings.HasSuffix(e.Name, "_templ.txt") {
 		// Reload browser tabs when a _templ.txt file has changed.
 		h.debouncedTemplTxtChange(func() {
 			h.reload.BroadcastNonblock()
 		})
-		return
+		return nil
 	}
 	if strings.HasSuffix(e.Name, "_templ.go") ||
 		strings.HasSuffix(e.Name, ".templ") {
-		return // Ignore templ files, templ watch will take care of them.
+		return nil // Ignore templ files, templ watch will take care of them.
 	}
 
 	h.debouncedNonTempl(func() {
@@ -293,14 +290,9 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) {
 
 		log.TemplierFileChange(e)
 
-		func() {
-			rerunTriggerStart.Store(time.Now())
-			if config.Lint {
-				go runGolangCILint(ctx, h.stateTracker)
-			}
-			go buildAndRerunServer(ctx, h.stateTracker)
-		}()
+		lintAndBuild(ctx, h.stateTracker)
 	})
+	return nil
 }
 
 func runGolangCILint(ctx context.Context, st *state.Tracker) {
@@ -346,4 +338,22 @@ func buildAndRerunServer(ctx context.Context, st *state.Tracker) {
 func makeUniqueServerOutPath(basePath string) string {
 	tm := time.Now()
 	return path.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
+}
+
+func lintAndBuild(ctx context.Context, st *state.Tracker) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	rerunTriggerStart.Store(time.Now())
+	if config.Lint {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runGolangCILint(ctx, st)
+		}()
+	}
+	go func() {
+		defer wg.Done()
+		buildAndRerunServer(ctx, st)
+	}()
+	wg.Wait() // Wait for build and lint to finish.
 }
