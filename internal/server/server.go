@@ -210,15 +210,10 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 func writeWSMsg(c *websocket.Conn, msg []byte) (ok bool) {
 	err := c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if err != nil {
-		fmt.Println("🤖 ERR: setting websocket write deadline:", err)
 		return false
 	}
 	err = c.WriteMessage(websocket.TextMessage, msg)
-	if err != nil {
-		fmt.Println("🤖 ERR: writing to websocket:", err)
-		return false
-	}
-	return true
+	return err == nil
 }
 
 var (
