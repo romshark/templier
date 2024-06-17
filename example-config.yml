@@ -17,12 +17,12 @@ print-js-debug-logs: true
 verbose: true
 
 debounce:
-  # debounce.templ defines how long to wait for other .templ file changes
-  # before triggering templ generate.
+  # debounce.templ defines how long to wait for more _templ.txt file changes
+  # after the first one occured before triggering all browser tabs to reload.
   templ: 50ms
 
-  # debounce.go defines how long to wait for other file changes
-  # before triggering server rebuild and restart.
+  # debounce.go defines how long to wait for more non-templ file changes
+  # after the first one occured before triggering server rebuild and restart.
   go: 50ms
 
 # tls can be set to null to serve HTTP instead of HTTPS.
@@ -57,6 +57,6 @@ app:
   # compiling the application server executable.
   go-flags:
 
-  # app.flags defines the CLI arguments to provide when
-  # executing the application server.
+  # app.flags defines the CLI arguments as a string provided
+  # to the application server executable.
   flags: -host your-application:12000

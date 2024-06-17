@@ -4,6 +4,7 @@ go 1.22.2
 
 require (
 	github.com/a-h/templ v0.2.707
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fatih/color v1.17.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gobwas/glob v0.2.3

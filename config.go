@@ -52,7 +52,8 @@ type Config struct {
 
 	// Debounce is the file watcher debounce duration.
 	Debounce struct {
-		// Templ is the template regeneration debounce duration.
+		// Templ is the browser tab reload debounce duration
+		// for _templ.txt changes.
 		Templ time.Duration `yaml:"templ"`
 
 		// Go is the Go recompilation debounce duration.
