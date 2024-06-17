@@ -240,7 +240,7 @@ AWAIT_COMMAND:
 
 			log.Durf("restarted server", time.Since(start))
 			rerunStart := rerunTriggerStart.Load().(time.Time)
-			log.Durf("reloaded", time.Since(rerunStart))
+			log.Durf("reloaded ☀︎", time.Since(rerunStart))
 
 			// Notify all clients to reload the page
 			stateTracker.Reset()
