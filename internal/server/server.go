@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bytes"
@@ -16,35 +16,51 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/romshark/templier/internal/broadcaster"
+	"github.com/romshark/templier/internal/state"
 )
 
-type Server struct {
-	httpClient          *http.Client
-	appHostAddr         string
-	broadcasterRegister chan chan []byte
-	jsInjection         []byte
-	webSocketUpgrader   websocket.Upgrader
+// PathProxyEvents defines the path for templier proxy websocket events endpoint.
+// This path is very unlikely to collide with any path used by the app server.
+const PathProxyEvents = "/_templiér/events"
+
+type Config struct {
+	PrintJSDebugLogs bool
+	AppHostAddr      string
+	ProxyTimeout     time.Duration
 }
 
-func NewServer(
+type Server struct {
+	config            Config
+	httpClient        *http.Client
+	stateTracker      *state.Tracker
+	reloadInitiated   *broadcaster.SignalBroadcaster
+	reload            *broadcaster.SignalBroadcaster
+	jsInjection       []byte
+	webSocketUpgrader websocket.Upgrader
+}
+
+func New(
 	httpClient *http.Client,
-	appHostAddr string,
-	printDebugLogs bool,
-	broadcasterRegister chan chan []byte,
-	connectionRefusedTimeout time.Duration,
+	stateTracker *state.Tracker,
+	reloadInitiated *broadcaster.SignalBroadcaster,
+	reload *broadcaster.SignalBroadcaster,
+	config Config,
 ) *Server {
 	var jsInjectionBuf bytes.Buffer
-	err := jsInjection(printDebugLogs, PathProxyEvents).Render(
+	err := jsInjection(config.PrintJSDebugLogs, PathProxyEvents).Render(
 		context.Background(), &jsInjectionBuf,
 	)
 	if err != nil {
 		panic(fmt.Errorf("rendering the live reload injection template: %w", err))
 	}
 	return &Server{
-		httpClient:          httpClient,
-		appHostAddr:         appHostAddr,
-		broadcasterRegister: broadcasterRegister,
-		jsInjection:         jsInjectionBuf.Bytes(),
+		config:          config,
+		httpClient:      httpClient,
+		stateTracker:    stateTracker,
+		reloadInitiated: reloadInitiated,
+		reload:          reload,
+		jsInjection:     jsInjectionBuf.Bytes(),
 		webSocketUpgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -61,13 +77,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := currentState.Load().(State)
-	if state.Type.IsErr() {
+	if state := s.stateTracker.Get(); state.IsErr() {
 		s.handleErrPage(w, r)
 		return
 	}
 
-	u, err := url.JoinPath(s.appHostAddr, r.URL.Path)
+	u, err := url.JoinPath(s.config.AppHostAddr, r.URL.Path)
 	if err != nil {
 		internalErr(w, "joining path", err)
 		return
@@ -89,7 +104,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, err = s.httpClient.Do(proxyReq)
 		if err != nil {
 			if isConnRefused(err) {
-				if time.Since(start) < config.ProxyTimeout {
+				if time.Since(start) < s.config.ProxyTimeout {
 					continue
 				}
 			}
@@ -160,31 +175,62 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 
-	messages := make(chan []byte)
-	s.broadcasterRegister <- messages
+	notifyStateChange := make(chan struct{})
+	s.stateTracker.AddListener(notifyStateChange)
+	defer s.stateTracker.RemoveListener(notifyStateChange)
 
-	for msg := range messages {
-		err = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if err != nil {
-			fmt.Println("🤖 ERR: setting websocket write deadline:", err)
-		}
-		err = c.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
-			return // Disconnected
+	notifyReloadInitiated := make(chan struct{})
+	s.reloadInitiated.AddListener(notifyReloadInitiated)
+	defer s.reloadInitiated.RemoveListener(notifyReloadInitiated)
+
+	notifyReload := make(chan struct{})
+	s.reload.AddListener(notifyReload)
+	defer s.reload.RemoveListener(notifyReload)
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-notifyStateChange:
+			if !writeWSMsg(c, bytesMsgReload) {
+				return // Disconnect
+			}
+		case <-notifyReloadInitiated:
+			if !writeWSMsg(c, bytesMsgReloadInitiated) {
+				return // Disconnect
+			}
+		case <-notifyReload:
+			if !writeWSMsg(c, bytesMsgReload) {
+				return // Disconnect
+			}
 		}
 	}
 }
 
+func writeWSMsg(c *websocket.Conn, msg []byte) (ok bool) {
+	err := c.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err != nil {
+		return false
+	}
+	err = c.WriteMessage(websocket.TextMessage, msg)
+	return err == nil
+}
+
+var (
+	bytesMsgReload          = []byte("r")
+	bytesMsgReloadInitiated = []byte("ri")
+)
+
 func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
-	state := currentState.Load().(State)
+	state := s.stateTracker.Get()
 
 	var header string
-	switch state.Type {
-	case StateTypeErrTempl:
+	switch {
+	case state.ErrTempl != "":
 		header = "Error: Templ"
-	case StateTypeErrCompile:
+	case state.ErrGo != "":
 		header = "Error: Compiling"
-	case StateTypeErrGolangCILint:
+	case state.ErrGolangCILint != "":
 		header = "Error: golangci-lint"
 	default:
 		header = "Error"
@@ -192,8 +238,8 @@ func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
 	title := header
 
 	comp := errpage(
-		title, header, string(state.Msg),
-		config.PrintJSDebugLogs, PathProxyEvents,
+		title, header, string(state.Msg()),
+		s.config.PrintJSDebugLogs, PathProxyEvents,
 	)
 	err := comp.Render(r.Context(), w)
 	if err != nil {

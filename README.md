@@ -9,11 +9,12 @@ Templiér is a Go web frontend development environment for
 
 - Watches your `.templ` files and rebuilds them.
 - Watches all non-template files, rebuilds and restarts the server.
-- Automatically reloads your browser tabs when the server restarts.
+- Automatically reloads your browser tabs when the server restarts or templates change.
 - Runs [golangci-lint](https://golangci-lint.run/) if enabled.
 - Reports all errors directly to all open browser tabs.
 - Shuts your server down gracefully.
 - Displays application server console logs in the terminal.
+- Supports templ's debug mode for fast live reload.
 
 ## Quick Start
 
@@ -40,24 +41,16 @@ which is great, but Templiér provides even better developer experience:
 - 📁 Templiér watches **all** file changes recursively (except for those that match `app.exclude`) and recompiles the server.
   Editing an embedded `.json` file in your app?
   Updating go mod? Templiér will notice and rebuild.
-- 🖥️ Templiér shows Go compiler and [golangci-lint](https://golangci-lint.run/) errors
-  (if any) in the browser. Templ's watcher just prints errors to the stdout and
+- 🖥️ Templiér shows Templ, Go compiler and [golangci-lint](https://golangci-lint.run/)
+  errors (if any) in the browser. Templ's watcher just prints errors to the stdout and
   continues to display the last valid state.
 - ⚙️ Templiér provides more configuration options (TLS, debounce, exclude globs, etc.).
-
-Other [alternatives](https://templ.guide/commands-and-tools/live-reload#built-in) to
-templ's watcher also didn't fulfill my needs at the time of writing.
-
-For now, Templiér doesn't implement templ watcher performance optimizations, such as:
-> templ generate --watch generates Go code that loads strings from a _templ.txt file on disk to reduce the number of times that Go code needs to be re-generated, and therefore reduces the number of time your app needs to be recompiled and restarted. - https://templ.guide/commands-and-tools/live-reload#built-in
-
-I also found templ's watcher to be unreliable when watching `*.go` file changes.
-Changing sub-packages didn't trigger the `cmd` rerun.
 
 ## How it works
 
 Templiér acts as a file watcher, proxy server and process manager.
-Once Templiér is started, it begins watching files in the `app.dir-src-root` directory.
+Once Templiér is started, it runs `templ generate --watch` in the background and begins
+watching files in the `app.dir-src-root` directory.
 On start and on file change, it automatically builds your application server executable
 saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
 the main package is specified by the `app.dir-cmd` directory. Any custom Go compiler
@@ -65,6 +58,10 @@ CLI arguments can be specified by `app.go-flags`. Once built, the application se
 executable is launched with `app.flags` CLI parameters and the working directory
 set to `app.dir-work`. When necessary, the application server process is shut down
 gracefully, rebuilt, linted and restarted.
+
+Templiér ignores changes made to `.templ`, `_templ.go` and `_templ.txt` files and lets
+`templ generate --watch` do its debug mode magic allowing for lightning fast reloads
+when a templ template changed with no need to rebuild the server.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
 all requests to the application server process that it launched injecting Templiér

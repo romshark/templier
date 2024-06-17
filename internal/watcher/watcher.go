@@ -1,3 +1,6 @@
+// Package watcher provides a recursive file watcher implementation
+// with support for glob expression based exclusions and event deduplication
+// based on xxhash file checksums.
 package watcher
 
 import (
@@ -11,19 +14,21 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
+	"github.com/romshark/templier/internal/filereg"
 )
 
 // Watcher is a recursive file watcher.
 type Watcher struct {
-	lock        sync.Mutex
-	runnerStart sync.WaitGroup
-	baseDir     string
-	watchedDirs map[string]struct{}
-	exclude     map[string]glob.Glob
-	onChange    func(ctx context.Context, e fsnotify.Event)
-	watcher     *fsnotify.Watcher
-	close       chan struct{}
-	state       state
+	lock         sync.Mutex
+	runnerStart  sync.WaitGroup
+	baseDir      string
+	fileRegistry *filereg.Registry
+	watchedDirs  map[string]struct{}
+	exclude      map[string]glob.Glob
+	onChange     func(ctx context.Context, e fsnotify.Event) error
+	watcher      *fsnotify.Watcher
+	close        chan struct{}
+	state        state
 }
 
 type state int8
@@ -40,19 +45,20 @@ const (
 // baseDir is used as the base path for relative ignore expressions.
 func New(
 	baseDir string,
-	onChange func(ctx context.Context, e fsnotify.Event),
+	onChange func(ctx context.Context, e fsnotify.Event) error,
 ) (*Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 	w := &Watcher{
-		baseDir:     baseDir,
-		watchedDirs: make(map[string]struct{}),
-		exclude:     make(map[string]glob.Glob),
-		onChange:    onChange,
-		watcher:     watcher,
-		close:       make(chan struct{}),
+		fileRegistry: filereg.New(),
+		baseDir:      baseDir,
+		watchedDirs:  make(map[string]struct{}),
+		exclude:      make(map[string]glob.Glob),
+		onChange:     onChange,
+		watcher:      watcher,
+		close:        make(chan struct{}),
 	}
 	w.runnerStart.Add(1)
 	return w, nil
@@ -92,7 +98,7 @@ func (w *Watcher) Close() error {
 
 // Run runs the watcher. Can only be called once.
 // Returns ErrClosed if closed, or ErrRunning if already running.
-func (w *Watcher) Run(ctx context.Context) error {
+func (w *Watcher) Run(ctx context.Context) (err error) {
 	w.lock.Lock()
 	switch w.state {
 	case stateClosed:
@@ -102,10 +108,30 @@ func (w *Watcher) Run(ctx context.Context) error {
 		w.lock.Unlock()
 		return ErrRunning
 	}
-	w.state = stateRunning
-	w.lock.Unlock()
 
-	w.runnerStart.Done() // Signal runner readiness
+	func() { // Register all files from the base dir
+		defer w.lock.Unlock()
+		err = filepath.Walk(w.baseDir, func(p string, i os.FileInfo, err error) error {
+			if err != nil || i.IsDir() {
+				return err
+			}
+			if err := w.isExluded(p); err != nil {
+				if err == errExcluded {
+					return nil // Object is excluded from watcher, don't notify
+				}
+				return fmt.Errorf("isExluded: %w", err)
+			}
+			_, err = w.fileRegistry.Add(p)
+			return err
+		})
+
+		// Signal runner readiness
+		w.state = stateRunning
+		w.runnerStart.Done()
+	}()
+	if err != nil {
+		return fmt.Errorf("registering files from base dir: %w", err)
+	}
 
 	defer w.Close()
 	for {
@@ -125,40 +151,56 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if e.Name == "" || e.Op == 0 {
 				continue
 			}
-			w.lock.Lock()
-			if err := w.isExluded(e.Name); err != nil {
-				w.lock.Unlock()
-				if err == errExcluded {
-					continue // Object is excluded from watcher, don't notify
-				}
-				return fmt.Errorf("isExluded: %w", err)
+			if err := w.handleEvent(ctx, e); err != nil {
+				return err
 			}
-			w.lock.Unlock()
-			switch e.Op {
-			case fsnotify.Create, fsnotify.Remove, fsnotify.Rename:
-				if w.isDirEvent(e) {
-					switch e.Op {
-					case fsnotify.Create:
-						// New sub-directory was created, start watching it.
-						if err := w.Add(e.Name); err != nil {
-							return fmt.Errorf("adding created directory: %w", err)
-						}
-					case fsnotify.Remove, fsnotify.Rename:
-						// Sub-directory was removed or renamed, stop watching it.
-						// A new create notification will readd it.
-						if err := w.Remove(e.Name); err != nil {
-							return fmt.Errorf("removing directory: %w", err)
-						}
-					}
-				}
-			}
-			w.onChange(ctx, e)
 		case err := <-w.watcher.Errors:
 			if err != nil {
 				return fmt.Errorf("watching: %w", err)
 			}
 		}
 	}
+}
+
+func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if err := w.isExluded(e.Name); err != nil {
+		if err == errExcluded {
+			return nil // Object is excluded from watcher, don't notify
+		}
+		return fmt.Errorf("isExluded: %w", err)
+	}
+	if w.isDirEvent(e) {
+		switch e.Op {
+		case fsnotify.Create:
+			// New sub-directory was created, start watching it.
+			if err := w.add(e.Name); err != nil {
+				return fmt.Errorf("adding created directory: %w", err)
+			}
+		case fsnotify.Remove, fsnotify.Rename:
+			// Sub-directory was removed or renamed, stop watching it.
+			// A new create notification will readd it.
+			if err := w.remove(e.Name); err != nil {
+				return fmt.Errorf("removing directory: %w", err)
+			}
+		}
+	} else if e.Op == fsnotify.Write || e.Op == fsnotify.Create {
+		// A file was created.
+		updated, err := w.fileRegistry.Add(e.Name)
+		if err != nil {
+			return fmt.Errorf("adding created file (%q) to registry: %w",
+				e.Name, err)
+		}
+		if !updated { // File checksum hasn't changed, ignore event.
+			return nil
+		}
+	} else if e.Op == fsnotify.Rename || e.Op == fsnotify.Remove {
+		// A file was (re)moved.
+		w.fileRegistry.Remove(e.Name)
+	}
+	return w.onChange(ctx, e)
 }
 
 // Ignore adds an ignore glob filter and removes all currently
@@ -177,6 +219,9 @@ func (w *Watcher) Ignore(globExpression string) error {
 	if w.state == stateClosed {
 		return ErrClosed
 	}
+
+	// Reset the file registry because we don't know what files will be excluded.
+	w.fileRegistry.Reset()
 
 	w.exclude[globExpression] = g
 	for dir := range w.watchedDirs {
@@ -216,6 +261,10 @@ func (w *Watcher) Add(dir string) error {
 	if w.state == stateClosed {
 		return ErrClosed
 	}
+	return w.add(dir)
+}
+
+func (w *Watcher) add(dir string) error {
 	err := forEachDir(dir, func(dir string) error {
 		if err := w.isExluded(dir); err != nil {
 			if err == errExcluded {
@@ -266,6 +315,10 @@ func (w *Watcher) remove(dir string) error {
 			}
 		}
 	}
+
+	// Remove all files from the registry
+	w.fileRegistry.RemoveWithPrefix(dir)
+
 	return nil
 }
 
