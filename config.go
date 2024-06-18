@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gobwas/glob"
+	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/yamagiconf"
 )
 
@@ -111,19 +112,19 @@ func mustParseConfig() {
 	if fConfigPath != "" {
 		err := yamagiconf.LoadFile(fConfigPath, &config)
 		if err != nil {
-			panic(fmt.Errorf("reading config file: %w", err))
+			log.Fatalf("reading config file: %v", err)
 		}
 	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		panic(fmt.Errorf("getting working dir: %w", err))
+		log.Fatalf("getting working dir: %v", err)
 	}
 	config.serverOutPath = path.Join(os.TempDir(), workingDir)
 
 	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
 	if err != nil {
-		panic(fmt.Errorf("getting absolute path for app.dir-src-root: %w", err))
+		log.Fatalf("getting absolute path for app.dir-src-root: %v", err)
 	}
 }
 
