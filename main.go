@@ -205,6 +205,11 @@ AWAIT_COMMAND:
 
 			log.Durf("stopped server", time.Since(start))
 
+			if stateTracker.Get().IsErr() {
+				// There's some error, we can't rerun now.
+				continue
+			}
+
 			start = time.Now()
 			latestBinaryPath = binaryPath
 			c := exec.Command(binaryPath)
@@ -303,6 +308,7 @@ func runGolangCILint(ctx context.Context, st *state.Tracker) {
 		st.SetErrGolangCILint(string(buf))
 		return
 	}
+	st.SetErrGolangCILint("")
 	log.Durf("linted", time.Since(startLinting))
 }
 
@@ -331,6 +337,7 @@ func buildAndRerunServer(ctx context.Context, st *state.Tracker) {
 		st.SetErrGo(string(buf))
 		return
 	}
+	st.SetErrGo("")
 	log.Durf("compiled cmd/server", time.Since(startBuilding))
 	chRerunServer <- binaryPath
 }
