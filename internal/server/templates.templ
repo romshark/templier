@@ -125,6 +125,9 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 			const wsURL = `${protocol}//${window.location.host}${params.WSEventsEndpoint}`
 			ws = new WebSocket(wsURL)
 			ws.onopen = function (e) {
+				if (reconnectingOverlay != null) {
+					window.location.reload()
+				}
 				hideReconnecting()
 				hideLoadingIndicator()
 				if (params.PrintDebugLogs) {
