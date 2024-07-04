@@ -150,7 +150,7 @@ func runTemplierServer(
 		reloadInitiated,
 		reload,
 		server.Config{
-			AppHostAddr:      config.App.Host,
+			AppHost:          config.App.Host.URL,
 			PrintJSDebugLogs: config.PrintJSDebugLogs,
 			ProxyTimeout:     config.ProxyTimeout,
 		},
@@ -230,7 +230,7 @@ AWAIT_COMMAND:
 				}
 				// Wait for the server to be ready
 				r, err := http.NewRequest(
-					http.MethodOptions, config.App.Host, http.NoBody,
+					http.MethodOptions, config.App.Host.URL.String(), http.NoBody,
 				)
 				if err != nil {
 					log.Errorf("initializing preflight request: %v", err)

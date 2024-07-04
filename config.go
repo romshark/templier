@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -44,7 +45,7 @@ type Config struct {
 
 		// Host is the application server host address.
 		// Example: "https://local.example.com:8080"
-		Host string `yaml:"host"  validate:"url,required"`
+		Host URL `yaml:"host" validate:"required"`
 	} `yaml:"app"`
 
 	// Verbose enables verbose console logs when true.
@@ -80,6 +81,17 @@ type Config struct {
 		Cert string `yaml:"cert" validate:"filepath,required"`
 		Key  string `yaml:"key" validate:"filepath,required"`
 	} `yaml:"tls"`
+}
+
+type URL struct{ URL *url.URL }
+
+func (u *URL) UnmarshalText(t []byte) error {
+	x, err := url.Parse(string(t))
+	if err != nil {
+		return err
+	}
+	u.URL = x
+	return nil
 }
 
 type ExludeFiles []string
