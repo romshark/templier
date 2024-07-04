@@ -8,13 +8,14 @@ Templiér is a Go web frontend development environment for
 [Templ](https://github.com/a-h/templ)
 
 - Watches your `.templ` files and rebuilds them.
-- Watches all non-template files, rebuilds and restarts the server.
+- Watches all non-template files, rebuilds and restarts the server ✨.
 - Automatically reloads your browser tabs when the server restarts or templates change.
 - Runs [golangci-lint](https://golangci-lint.run/) if enabled.
-- Reports all errors directly to all open browser tabs.
+- Reports all errors directly to all open browser tabs ✨.
 - Shuts your server down gracefully.
 - Displays application server console logs in the terminal.
 - Supports templ's debug mode for fast live reload.
+- Avoids reloading when files didn't change by keeping track of hashsums.
 
 ## Quick Start
 
