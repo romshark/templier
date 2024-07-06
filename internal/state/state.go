@@ -2,6 +2,8 @@ package state
 
 import (
 	"sync"
+
+	"github.com/romshark/templier/internal/broadcaster"
 )
 
 type State struct {
@@ -30,30 +32,26 @@ func (s State) IsErr() bool {
 }
 
 type Tracker struct {
-	state     State
-	lock      sync.Mutex
-	listeners map[chan<- struct{}]struct{}
+	state       State
+	lock        sync.Mutex
+	broadcaster *broadcaster.SignalBroadcaster
 }
 
 func NewTracker() *Tracker {
 	return &Tracker{
-		listeners: make(map[chan<- struct{}]struct{}),
+		broadcaster: broadcaster.NewSignalBroadcaster(),
 	}
 }
 
 // AddListener adds a listener channel.
 // c will be written struct{}{} to when a state change happens.
 func (s *Tracker) AddListener(c chan<- struct{}) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.listeners[c] = struct{}{}
+	s.broadcaster.AddListener(c)
 }
 
 // RemoveListener removes a listener channel.
 func (s *Tracker) RemoveListener(c chan<- struct{}) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	delete(s.listeners, c)
+	s.broadcaster.RemoveListener(c)
 }
 
 // Reset resets the state and notifies all listeners.
@@ -63,7 +61,7 @@ func (s *Tracker) Reset() {
 	s.state.ErrTempl = ""
 	s.state.ErrGolangCILint = ""
 	s.state.ErrGo = ""
-	s.notifyListeners()
+	s.broadcaster.BroadcastNonblock()
 }
 
 // SetErrTempl sets or resets (if "") the current templ error
@@ -75,7 +73,7 @@ func (s *Tracker) SetErrTempl(msg string) {
 		return // State didn't change, ignore.
 	}
 	s.state.ErrTempl = msg
-	s.notifyListeners()
+	s.broadcaster.BroadcastNonblock()
 }
 
 // SetErrGolangCILint sets or resets (if "") the current golangci-lint error
@@ -87,7 +85,7 @@ func (s *Tracker) SetErrGolangCILint(msg string) {
 		return // State didn't change, ignore.
 	}
 	s.state.ErrGolangCILint = msg
-	s.notifyListeners()
+	s.broadcaster.BroadcastNonblock()
 }
 
 // SetErrGo sets or resets (if "") the current Go error
@@ -99,7 +97,7 @@ func (s *Tracker) SetErrGo(msg string) {
 		return // State didn't change, ignore.
 	}
 	s.state.ErrGo = msg
-	s.notifyListeners()
+	s.broadcaster.BroadcastNonblock()
 }
 
 // Get returns the current state.
@@ -107,13 +105,4 @@ func (s *Tracker) Get() State {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.state
-}
-
-func (s *Tracker) notifyListeners() {
-	for ch := range s.listeners {
-		select {
-		case ch <- struct{}{}:
-		default: // Ignore unresponsive listeners.
-		}
-	}
 }
