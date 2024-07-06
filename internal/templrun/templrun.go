@@ -22,7 +22,7 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 	cmd := exec.Command("templ", "generate", "--log-level", "debug", "--watch")
 	cmd.Dir = workDir
 
-	stdout, err := cmd.StdoutPipe()
+	stdout, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("obtaining stdout pipe: %w", err)
 	}
