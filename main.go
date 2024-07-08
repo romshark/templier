@@ -279,8 +279,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		})
 		return nil
 	}
-	if strings.HasSuffix(e.Name, "_templ.go") ||
-		strings.HasSuffix(e.Name, ".templ") {
+	if strings.HasSuffix(e.Name, ".templ") {
 		return nil // Ignore templ files, templ watch will take care of them.
 	}
 
