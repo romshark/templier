@@ -62,105 +62,105 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 		WSEventsEndpoint: wsEventsEndpoint,
 	})
 	<script type="text/javascript">
-		// This script is injected by the templier proxy for automatic reload
-		const params = JSON.parse(
-			document.getElementById('_templier__jsInjection').textContent
-		)
+		(() => {
+			let params = JSON.parse(
+				document.getElementById('_templier__jsInjection').textContent
+			)
 
-		let reloadIndicator
-		function showLoadingIndicator() {
-			if (reloadIndicator != null) {
-				return
-			}
-			displayingLoadingIndicator = true
-			reloadIndicator = document.createElement('p')
-			reloadIndicator.innerHTML = 'Reloading...'
-			reloadIndicator.style.top = 0
-			reloadIndicator.style.left = 0
-			reloadIndicator.style.width = '100%'
-			reloadIndicator.style.padding = '.25rem'
-			reloadIndicator.style.position = 'fixed'
-			reloadIndicator.style.background = 'rgba(0,0,0,.75)'
-			reloadIndicator.style.color = 'white'
-			document.body.appendChild(reloadIndicator)
-		}
-		function hideLoadingIndicator() {
-			if (reloadIndicator == null) {
-				return
-			}
-			reloadIndicator.remove()
-			reloadIndicator = null
-		}
-
-		let reconnectingOverlay 
-		function showReconnecting() {
-			if (reconnectingOverlay != null) {
-				return
-			}
-			reconnectingOverlay = document.createElement('p')
-			reconnectingOverlay.innerHTML = '🔌 reconnecting Templier...'
-			reconnectingOverlay.style.position = 'fixed'
-			reconnectingOverlay.style.top = 0
-			reconnectingOverlay.style.left = 0
-			reconnectingOverlay.style.fontSize = '1.25rem'
-			reconnectingOverlay.style.width = '100%'
-			reconnectingOverlay.style.height = '100%'
-			reconnectingOverlay.style.padding = '2rem'
-			reconnectingOverlay.style.textAlign = 'center'
-			reconnectingOverlay.style.background = 'rgba(0,0,0,.8)'
-			reconnectingOverlay.style.color = 'white'
-			document.body.appendChild(reconnectingOverlay)
-		}
-		function hideReconnecting() {
-			if (reconnectingOverlay == null) {
-				return
-			}
-			reconnectingOverlay.remove()
-			reconnectingOverlay = null
-		}
-
-		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
-		function connectWebsocket() {
-			const wsURL = `${protocol}//${window.location.host}${params.WSEventsEndpoint}`
-			ws = new WebSocket(wsURL)
-			ws.onopen = function (e) {
-				if (reconnectingOverlay != null) {
-					window.location.reload()
-				}
-				hideReconnecting()
-				hideLoadingIndicator()
-				if (params.PrintDebugLogs) {
-					console.debug('templier: connectWebsocket connected')
-				}
-			}
-			if (params.PrintDebugLogs) {
-				ws.onerror = function (e) {
-					console.debug('templier: websocket connection error: ' + e.data)
-				}
-			}
-			ws.onmessage = function (e) {
-				switch (e.data) {
-				case 'r': // Reload
-					window.location.reload()
-				case 'ri': // Reload initiated
-					showLoadingIndicator()
+			let reloadIndicator
+			function showLoadingIndicator() {
+				if (reloadIndicator != null) {
 					return
-				case 's': // Shutdown
-
 				}
+				displayingLoadingIndicator = true
+				reloadIndicator = document.createElement('p')
+				reloadIndicator.innerHTML = 'Reloading...'
+				reloadIndicator.style.top = 0
+				reloadIndicator.style.left = 0
+				reloadIndicator.style.width = '100%'
+				reloadIndicator.style.padding = '.25rem'
+				reloadIndicator.style.position = 'fixed'
+				reloadIndicator.style.background = 'rgba(0,0,0,.75)'
+				reloadIndicator.style.color = 'white'
+				document.body.appendChild(reloadIndicator)
 			}
-			ws.onclose = function (e) {
-				showReconnecting()
-				hideLoadingIndicator()
+			function hideLoadingIndicator() {
+				if (reloadIndicator == null) {
+					return
+				}
+				reloadIndicator.remove()
+				reloadIndicator = null
+			}
+
+			let reconnectingOverlay 
+			function showReconnecting() {
+				if (reconnectingOverlay != null) {
+					return
+				}
+				reconnectingOverlay = document.createElement('p')
+				reconnectingOverlay.innerHTML = '🔌 reconnecting Templier...'
+				reconnectingOverlay.style.position = 'fixed'
+				reconnectingOverlay.style.top = 0
+				reconnectingOverlay.style.left = 0
+				reconnectingOverlay.style.fontSize = '1.25rem'
+				reconnectingOverlay.style.width = '100%'
+				reconnectingOverlay.style.height = '100%'
+				reconnectingOverlay.style.padding = '2rem'
+				reconnectingOverlay.style.textAlign = 'center'
+				reconnectingOverlay.style.background = 'rgba(0,0,0,.8)'
+				reconnectingOverlay.style.color = 'white'
+				document.body.appendChild(reconnectingOverlay)
+			}
+			function hideReconnecting() {
+				if (reconnectingOverlay == null) {
+					return
+				}
+				reconnectingOverlay.remove()
+				reconnectingOverlay = null
+			}
+
+			const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+
+			function connectWebsocket() {
+				const wsURL = `${protocol}//${window.location.host}${params.WSEventsEndpoint}`
+				ws = new WebSocket(wsURL)
+				ws.onopen = function (e) {
+					if (reconnectingOverlay != null) {
+						window.location.reload()
+					}
+					hideReconnecting()
+					hideLoadingIndicator()
+					if (params.PrintDebugLogs) {
+						console.debug('templier: connectWebsocket connected')
+					}
+				}
 				if (params.PrintDebugLogs) {
-					console.debug('templier: websocket disconnected, reconnecting...')
+					ws.onerror = function (e) {
+						console.debug('templier: websocket connection error: ' + e.data)
+					}
 				}
-				setTimeout(() => connectWebsocket(), 300)
+				ws.onmessage = function (e) {
+					switch (e.data) {
+					case 'r': // Reload
+						window.location.reload()
+					case 'ri': // Reload initiated
+						showLoadingIndicator()
+						return
+					case 's': // Shutdown
+
+					}
+				}
+				ws.onclose = function (e) {
+					showReconnecting()
+					hideLoadingIndicator()
+					if (params.PrintDebugLogs) {
+						console.debug('templier: websocket disconnected, reconnecting...')
+					}
+					setTimeout(() => connectWebsocket(), 300)
+				}
 			}
-		}
 
-		connectWebsocket()
-
+			connectWebsocket()
+		})();
 	</script>
 }
