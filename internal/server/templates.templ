@@ -63,6 +63,9 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 	})
 	<script type="text/javascript">
 		(() => {
+			if (window._templier__jsInjection_initialized === true) {
+				return
+			}
 			let params = JSON.parse(
 				document.getElementById('_templier__jsInjection').textContent
 			)
@@ -161,6 +164,7 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 			}
 
 			connectWebsocket()
+			window._templier__jsInjection_initialized = true
 		})();
 	</script>
 }
