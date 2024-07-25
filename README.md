@@ -54,31 +54,7 @@ which is great, but Templiér provides even better developer experience:
   the last valid state.
 - ⚙️ Templiér provides more configuration options (TLS, debounce, exclude globs, etc.).
 
-## How it works
-
-Templiér acts as a file watcher, proxy server and process manager.
-Once Templiér is started, it runs `templ generate --watch` in the background and begins
-watching files in the `app.dir-src-root` directory.
-On start and on file change, it automatically builds your application server executable
-saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
-the main package is specified by the `app.dir-cmd` directory. Any custom Go compiler
-CLI arguments can be specified by `app.go-flags`. Once built, the application server
-executable is launched with `app.flags` CLI parameters and the working directory
-set to `app.dir-work`. When necessary, the application server process is shut down
-gracefully, rebuilt, linted and restarted.
-
-Templiér ignores changes made to `.templ`, `_templ.go` and `_templ.txt` files and lets
-`templ generate --watch` do its debug mode magic allowing for lightning fast reloads
-when a templ template changed with no need to rebuild the server.
-
-Templiér hosts your application under the URL specified by `templier-host` and proxies
-all requests to the application server process that it launched injecting Templiér
-JavaScript that opens a websocket connection to Templiér from the browser tab to listen
-for events and reload or display necessary status information when necessary.
-In the CLI console logs, all Templiér logs are prefixed with 🤖,
-while application server logs are displayed without the prefix.
-
-## Custom Watchers
+## Custom Watchers 👁️👁️
 
 Custom configurable watchers allow altering the behavior of Templiér for files
 that match any of the `include` globs and they can be used for various use cases
@@ -135,3 +111,27 @@ require rebuilding the server. Restarting the server may be sufficient in this c
   debounce:
   requires: restart
 ```
+
+## How Templiér works
+
+Templiér acts as a file watcher, proxy server and process manager.
+Once Templiér is started, it runs `templ generate --watch` in the background and begins
+watching files in the `app.dir-src-root` directory.
+On start and on file change, it automatically builds your application server executable
+saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
+the main package is specified by the `app.dir-cmd` directory. Any custom Go compiler
+CLI arguments can be specified by `app.go-flags`. Once built, the application server
+executable is launched with `app.flags` CLI parameters and the working directory
+set to `app.dir-work`. When necessary, the application server process is shut down
+gracefully, rebuilt, linted and restarted.
+
+Templiér ignores changes made to `.templ`, `_templ.go` and `_templ.txt` files and lets
+`templ generate --watch` do its debug mode magic allowing for lightning fast reloads
+when a templ template changed with no need to rebuild the server.
+
+Templiér hosts your application under the URL specified by `templier-host` and proxies
+all requests to the application server process that it launched injecting Templiér
+JavaScript that opens a websocket connection to Templiér from the browser tab to listen
+for events and reload or display necessary status information when necessary.
+In the CLI console logs, all Templiér logs are prefixed with 🤖,
+while application server logs are displayed without the prefix.
