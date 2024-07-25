@@ -16,13 +16,16 @@ Templiér is a Go web frontend development environment for
 - Displays application server console logs in the terminal.
 - Supports templ's debug mode for fast live reload.
 - Avoids reloading when files didn't change by keeping track of hashsums.
+- Allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
 
 ## Quick Start
 
 Install Templiér:
+
 ```sh
-go install github.com/romshark/templier@latest 
+go install github.com/romshark/templier@latest
 ```
+
 Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder as `templier.yml`, edit to your needs and run:
 
 ```sh
@@ -70,3 +73,61 @@ JavaScript that opens a websocket connection to Templiér from the browser tab t
 for events and reload or display necessary status information when necessary.
 In the CLI console logs, all Templiér logs are prefixed with 🤖,
 while application server logs are displayed without the prefix.
+
+## Custom Watchers
+
+Custom configurable watchers allow altering the behavior of Templiér for files
+that match any of the `include` globs and they can be used for various use cases
+demonstrated below.
+
+The `requires` option allows overwriting the default behavior:
+
+- empty field/string: no action, just execute Cmd.
+- `reload`: Only reloads all browser tabs.
+- `restart`: Restarts the server without rebuilding.
+- `rebuild`: Requires the server to be rebuilt and restarted (standard behavior).
+
+If custom watcher `A` requires `reload` but custom watcher `B` requires `rebuild` then
+`rebuild` will be chosen once all custom watchers have finished executing.
+
+### Custom Watcher Example: JavaScript Bundler
+
+The following custom watcher will watch for `.js` file updates and automatically run
+the CLI command `npm run bundle`, after which all browser tabs will be reloaded
+using `requires: reload`. `fail-on-error: true` specifies that if `eslint` or `esbuild`
+fail in the process, their error output will be shown directly in the browser.
+
+```yaml
+custom-watchers:
+  - name: Bundle JS
+    cmd: npm run bundle
+    include: ["*.js"]
+    fail-on-error: true
+    debounce:
+    # reload browser after successful bundling
+    requires: reload
+```
+
+The `cmd` above refers to a script defined in `package.json` scripts:
+
+```json
+"scripts": {
+  "bundle": "eslint . && esbuild --bundle --minify --outfile=./dist.js server/js/bundle.js",
+  "lint": "eslint ."
+},
+```
+
+### Custom Watcher Example: Reload on config change.
+
+Normally, Templiér rebuilds and restarts the server when any file changes (except for
+`.templ` and `_templ.txt` files). However, when a config file changes we don't usually
+require rebuilding the server. Restarting the server may be sufficient in this case:
+
+```yaml
+- name: Restart server on config change
+  cmd: # No command, just restart
+  include: ["*.toml"] # Any TOML file
+  fail-on-error:
+  debounce:
+  requires: restart
+```
