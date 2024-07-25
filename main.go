@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	_ "embed"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,13 +18,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gobwas/glob"
+	"github.com/romshark/templier/internal/action"
 	"github.com/romshark/templier/internal/broadcaster"
+	"github.com/romshark/templier/internal/cmdrun"
+	"github.com/romshark/templier/internal/config"
 	"github.com/romshark/templier/internal/debounce"
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/server"
-	"github.com/romshark/templier/internal/state"
+	"github.com/romshark/templier/internal/statetrack"
 	"github.com/romshark/templier/internal/syncstrset"
-	"github.com/romshark/templier/internal/templrun"
 	"github.com/romshark/templier/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
@@ -32,17 +36,36 @@ import (
 const ServerHealthPreflightWaitInterval = 100 * time.Millisecond
 
 var (
-	chRerunServer = make(chan string, 1)
-	chStopServer  = make(chan struct{})
+	chRerunServer  = make(chan struct{}, 1)
+	chRunNewServer = make(chan string, 1)
+	chStopServer   = make(chan struct{})
 
 	// filesToBeDeletedBeforeExit keeps a path->struct{} register to make sure
 	// all files created by this process are defer-deleted.
 	filesToBeDeletedBeforeExit = syncstrset.New()
 )
 
+type customWatcher struct {
+	name      string
+	cmd       config.CmdStr
+	include   []glob.Glob
+	debounced func(func())
+	failOnErr bool
+	requires  action.Type
+}
+
+func (c customWatcher) isFilePathIncluded(s string) bool {
+	for _, glob := range c.include {
+		if glob.Match(s) {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
-	mustParseConfig()
-	log.SetVerbose(config.Verbose)
+	conf := config.MustParse()
+	log.SetVerbose(conf.Verbose)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -56,9 +79,8 @@ func main() {
 		})
 	}()
 
-	reloadInitiated := broadcaster.NewSignalBroadcaster()
 	reload := broadcaster.NewSignalBroadcaster()
-	st := state.NewTracker()
+	st := statetrack.NewTracker(len(conf.CustomWatchers))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -67,34 +89,78 @@ func main() {
 		defer wg.Done()
 		// Run templ in watch mode to create debug components.
 		// Once ctx is canceled templ will write production output and exit.
-		err := templrun.RunWatch(ctx, config.App.dirSrcRootAbsolute, st)
+		err := cmdrun.RunTemplWatch(ctx, conf.App.DirSrcRootAbsolute(), st)
 		if err != nil {
 			log.Errorf("running 'templ generate --watch': %v", err)
 		}
 	}()
 
-	// Initial build
-	lintAndBuild(ctx, st)
+	// Initialize custom customWatchers.
+	customWatchers := make([]customWatcher, len(conf.CustomWatchers))
+	for i, w := range conf.CustomWatchers {
+		debouncer, debounced := debounce.NewSync(w.Debounce)
+		go debouncer(ctx)
+		globs := make([]glob.Glob, len(w.Include))
+		for i, pattern := range w.Include {
+			// These globs have already been validated during config parsing.
+			// It's safe to assume compilation succeeds.
+			globs[i] = glob.MustCompile(pattern)
+		}
+		customWatchers[i] = customWatcher{
+			name:      w.Name,
+			debounced: debounced,
+			cmd:       w.Cmd,
+			failOnErr: w.FailOnError,
+			include:   globs,
+			requires:  action.Type(w.Requires),
+		}
+	}
 
-	go runTemplierServer(st, reloadInitiated, reload)
+	go runTemplierServer(st, reload, conf)
+	go runAppLauncher(ctx, st, reload, conf)
 
-	rerunTriggerStart.Store(time.Now())
-	go runAppLauncher(st)
-
-	debouncerTempl, debouncedTempl := debounce.NewSync(config.Debounce.Templ)
+	debouncerTempl, debouncedTempl := debounce.NewSync(conf.Debounce.Templ)
 	go debouncerTempl(ctx)
 
-	debouncer, debounced := debounce.NewSync(config.Debounce.Go)
+	debouncer, debounced := debounce.NewSync(conf.Debounce.Go)
 	go debouncer(ctx)
 
+	// Initial build, run all custom watcher cmd's and if they succeed then lint & build
+	for i, watcher := range conf.CustomWatchers {
+		o, err := cmdrun.Sh(ctx, conf.App.DirWork, string(watcher.Cmd))
+		output := string(o)
+		if errors.Is(err, cmdrun.ErrExitCode1) {
+			if !watcher.FailOnError {
+				log.Errorf(
+					"custom watcher %q exited with code 1: %s",
+					watcher.Cmd, output,
+				)
+				continue
+			}
+			st.Set(statetrack.IndexOffsetCustomWatcher+i, string(o))
+			continue
+		} else if err != nil {
+			log.Errorf("running custom watcher cmd %q: %v", watcher.Cmd, err)
+			continue
+		}
+		st.Set(statetrack.IndexOffsetCustomWatcher+i, "")
+	}
+
+	// Finalize initial build
+	if binaryFile := lintAndBuildServer(ctx, st, conf); binaryFile != "" {
+		// Launch only when there's no errors on initial build.
+		chRunNewServer <- binaryFile
+	}
+
 	onChangeHandler := FileChangeHandler{
+		customWatchers:          customWatchers,
 		stateTracker:            st,
 		reload:                  reload,
-		reloadInitiated:         reloadInitiated,
 		debouncedNonTempl:       debounced,
 		debouncedTemplTxtChange: debouncedTempl,
+		conf:                    conf,
 	}
-	watcher, err := watcher.New(config.App.dirSrcRootAbsolute, onChangeHandler.Handle)
+	watcher, err := watcher.New(conf.App.DirSrcRootAbsolute(), onChangeHandler.Handle)
 	if err != nil {
 		log.Fatalf("initializing file watcher: %v", err)
 	}
@@ -105,23 +171,23 @@ func main() {
 		}
 	}()
 
-	for _, expr := range config.App.Exclude {
+	for _, expr := range conf.App.Exclude {
 		if err := watcher.Ignore(expr); err != nil {
 			log.Fatalf("adding ignore filter to watcher (%q): %v", expr, err)
 		}
 	}
 
-	if err := watcher.Add(config.App.dirSrcRootAbsolute); err != nil {
+	if err := watcher.Add(conf.App.DirSrcRootAbsolute()); err != nil {
 		log.Fatalf("setting up file watcher for app.dir-src-root(%q): %v",
-			config.App.dirSrcRootAbsolute, err)
+			conf.App.DirSrcRootAbsolute(), err)
 	}
 
 	{
 		templierBaseURL := url.URL{
 			Scheme: "http",
-			Host:   config.TemplierHost,
+			Host:   conf.TemplierHost,
 		}
-		if config.TLS != nil {
+		if conf.TLS != nil {
 			templierBaseURL.Scheme = "https"
 		}
 
@@ -129,45 +195,45 @@ func main() {
 	}
 
 	<-ctx.Done()
+	fmt.Println("CANCELED; WAITING...")
 	wg.Wait()
+	fmt.Println("WAITED SUCCESSFULY; STOPPING...")
 	chStopServer <- struct{}{}
+	fmt.Println("STOPPED")
 }
 
-var (
-	// fileChangedLock prevents more than one rebuilder goroutine at a time.
-	fileChangedLock   sync.Mutex
-	rerunTriggerStart atomic.Value
-)
+// rebuildLock prevents more than one rebuilder goroutine at a time.
+var rebuildLock sync.Mutex
 
 func runTemplierServer(
-	st *state.Tracker, reloadInitiated, reload *broadcaster.SignalBroadcaster,
+	st *statetrack.Tracker, reload *broadcaster.SignalBroadcaster, conf *config.Config,
 ) {
 	srv := server.New(
 		&http.Client{
-			Timeout: config.ProxyTimeout,
+			Timeout: conf.ProxyTimeout,
 		},
 		st,
-		reloadInitiated,
 		reload,
-		server.Config{
-			AppHost:          config.App.Host.URL,
-			PrintJSDebugLogs: config.PrintJSDebugLogs,
-			ProxyTimeout:     config.ProxyTimeout,
-		},
+		conf,
 	)
 	var err error
-	if config.TLS != nil {
-		err = http.ListenAndServeTLS(config.TemplierHost,
-			config.TLS.Cert, config.TLS.Key, srv)
+	if conf.TLS != nil {
+		err = http.ListenAndServeTLS(conf.TemplierHost,
+			conf.TLS.Cert, conf.TLS.Key, srv)
 	} else {
-		err = http.ListenAndServe(config.TemplierHost, srv)
+		err = http.ListenAndServe(conf.TemplierHost, srv)
 	}
 	if err != nil {
 		log.Fatalf("listening templier host: %v", err)
 	}
 }
 
-func runAppLauncher(stateTracker *state.Tracker) {
+func runAppLauncher(
+	ctx context.Context,
+	stateTracker *statetrack.Tracker,
+	reload *broadcaster.SignalBroadcaster,
+	conf *config.Config,
+) {
 	var latestSrvCmd *exec.Cmd
 	var latestBinaryPath string
 
@@ -196,59 +262,66 @@ func runAppLauncher(stateTracker *state.Tracker) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}}
 
-AWAIT_COMMAND:
-	for {
-		select {
-		case binaryPath := <-chRerunServer:
-			start := time.Now()
-			stopServer()
+	rerun := func(binaryPath string) {
+		start := time.Now()
+		stopServer()
 
-			log.Durf("stopped server", time.Since(start))
+		log.Durf("stopped server", time.Since(start))
 
-			if stateTracker.Get().IsErr() {
-				// There's some error, we can't rerun now.
+		if stateTracker.ErrIndex() != -1 {
+			// There's some error, we can't rerun now.
+			return
+		}
+
+		latestBinaryPath = binaryPath
+		c := exec.Command(binaryPath)
+		c.Args = conf.App.Flags
+		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		latestSrvCmd = c
+
+		log.TemplierRestartingServer(conf.App.DirCmd)
+
+		if err := c.Start(); err != nil {
+			log.Errorf("running %s: %v", conf.App.DirCmd, err)
+		}
+		const maxRetries = 100
+		for retry := 0; ; retry++ {
+			if ctx.Err() != nil {
+				// Canceled
+				return
+			}
+			if retry > maxRetries {
+				log.Errorf("waiting for server: %d retries failed", maxRetries)
+				return
+			}
+			// Wait for the server to be ready
+			r, err := http.NewRequest(
+				http.MethodOptions, conf.App.Host.URL.String(), http.NoBody,
+			)
+			r = r.WithContext(ctx)
+			if err != nil {
+				log.Errorf("initializing preflight request: %v", err)
 				continue
 			}
-
-			start = time.Now()
-			latestBinaryPath = binaryPath
-			c := exec.Command(binaryPath)
-			c.Args = config.App.Flags
-			c.Stdout, c.Stderr = os.Stdout, os.Stderr
-			latestSrvCmd = c
-
-			log.TemplierRestartingServer(config.App.DirCmd)
-
-			if err := c.Start(); err != nil {
-				log.Errorf("running %s: %v", config.App.DirCmd, err)
+			_, err = healtCheckClient.Do(r)
+			if err == nil {
+				break // Server is ready to receive requests
 			}
-			const maxRetries = 100
-			for retry := 0; ; retry++ {
-				if retry > maxRetries {
-					log.Errorf("waiting for server: %d retries failed", maxRetries)
-					continue AWAIT_COMMAND
-				}
-				// Wait for the server to be ready
-				r, err := http.NewRequest(
-					http.MethodOptions, config.App.Host.URL.String(), http.NoBody,
-				)
-				if err != nil {
-					log.Errorf("initializing preflight request: %v", err)
-					continue
-				}
-				_, err = healtCheckClient.Do(r)
-				if err == nil {
-					break // Server is ready to receive requests
-				}
-				time.Sleep(ServerHealthPreflightWaitInterval)
-			}
+			time.Sleep(ServerHealthPreflightWaitInterval)
+		}
 
-			log.Durf("restarted server", time.Since(start))
-			rerunStart := rerunTriggerStart.Load().(time.Time)
-			log.Durf("reloaded ☀︎", time.Since(rerunStart))
+		log.Durf("restarted server", time.Since(start))
 
-			// Notify all clients to reload the page
-			stateTracker.Reset()
+		// Notify all clients to reload the page
+		reload.BroadcastNonblock()
+	}
+
+	for {
+		select {
+		case <-chRerunServer:
+			rerun(latestBinaryPath)
+		case newBinaryPath := <-chRunNewServer:
+			rerun(newBinaryPath)
 		case <-chStopServer:
 			stopServer()
 		}
@@ -256,11 +329,12 @@ AWAIT_COMMAND:
 }
 
 type FileChangeHandler struct {
-	stateTracker            *state.Tracker
+	customWatchers          []customWatcher
+	stateTracker            *statetrack.Tracker
 	reload                  *broadcaster.SignalBroadcaster
-	reloadInitiated         *broadcaster.SignalBroadcaster
 	debouncedNonTempl       func(fn func())
 	debouncedTemplTxtChange func(fn func())
+	conf                    *config.Config
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
@@ -268,77 +342,160 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		return nil // Ignore chmod events.
 	}
 
-	if h.stateTracker.Get().ErrTempl != "" {
-		// A templ template is broken, don't continue.
-		return nil
+	var wg sync.WaitGroup
+	var customWatcherTriggered atomic.Bool
+	var act action.SyncStatus
+
+	if len(h.customWatchers) > 0 {
+		// Each custom watcher will be executed in the goroutine of its debouncer.
+		wg.Add(len(h.customWatchers))
+		for i, w := range h.customWatchers {
+			if !w.isFilePathIncluded(e.Name) {
+				// File doesn't match any glob
+				wg.Done()
+				continue
+			}
+
+			customWatcherTriggered.Store(true)
+			index := i
+			w.debounced(func() { // This runs in a separate goroutine.
+				defer wg.Done()
+				start := time.Now()
+				defer func() { log.Durf(string(w.name), time.Since(start)) }()
+				o, err := cmdrun.Sh(ctx, h.conf.App.DirWork, string(w.cmd))
+				output := string(o)
+				if errors.Is(err, cmdrun.ErrExitCode1) {
+					if w.failOnErr {
+						h.stateTracker.Set(
+							statetrack.IndexOffsetCustomWatcher+index, output,
+						)
+						h.reload.BroadcastNonblock()
+					} else {
+						// Log the error when fail-on-error is disabled.
+						log.Errorf(
+							"custom watcher %q exited with code 1: %s",
+							w.cmd, output,
+						)
+					}
+					return
+				} else if err != nil {
+					// The reason this cmd failed was not just exit code 1.
+					if w.failOnErr {
+						h.stateTracker.Set(
+							statetrack.IndexOffsetCustomWatcher+index, output,
+						)
+					}
+					log.Errorf(
+						"executing custom watcher %q: %s",
+						w.cmd, output,
+					)
+				} else {
+					h.stateTracker.Set(
+						statetrack.IndexOffsetCustomWatcher+index, "",
+					)
+					act.Require(w.requires)
+				}
+			})
+		}
 	}
-	if strings.HasSuffix(e.Name, "_templ.txt") {
-		// Reload browser tabs when a _templ.txt file has changed.
-		h.debouncedTemplTxtChange(func() {
+
+	wg.Wait() // Wait for all custom watcher to finish before attempting reload.
+	if customWatcherTriggered.Load() {
+		// Custom watcher was triggered, apply custom action.
+		switch act.Load() {
+		case action.ActionNone:
+			// Custom watchers require no further action to be taken.
+			return nil
+		case action.ActionReload:
+			// Custom watchers require just a reload of all browser tabs.
 			h.reload.BroadcastNonblock()
-		})
-		return nil
-	}
-	if strings.HasSuffix(e.Name, ".templ") {
-		return nil // Ignore templ files, templ watch will take care of them.
+			return nil
+		case action.ActionRestart:
+			// Custom watchers require just a server restart.
+			chRerunServer <- struct{}{}
+			return nil
+		}
+	} else {
+		// No custom watcher triggered, follow default pipeline.
+		if strings.HasSuffix(e.Name, ".templ") {
+			return nil // Ignore templ files, templ watch will take care of them.
+		}
+		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
+			// A templ template is broken, don't continue.
+			return nil
+		}
+		if strings.HasSuffix(e.Name, "_templ.txt") {
+			// Reload browser tabs when a _templ.txt file has changed.
+			h.debouncedTemplTxtChange(func() {
+				h.reload.BroadcastNonblock()
+			})
+			return nil
+		}
 	}
 
 	h.debouncedNonTempl(func() {
-		fileChangedLock.Lock()
-		defer fileChangedLock.Unlock()
+		rebuildLock.Lock()
+		defer rebuildLock.Unlock()
 
 		// templ files are OK, a non-templ file was changed.
-		// Notify all clients that a reload has been initiated
-		// and try to rebuild the server.
-		h.reloadInitiated.BroadcastNonblock()
-
 		log.TemplierFileChange(e)
 
-		lintAndBuild(ctx, h.stateTracker)
+		newBinaryPath := lintAndBuildServer(ctx, h.stateTracker, h.conf)
+		if h.stateTracker.ErrIndex() != -1 {
+			h.reload.BroadcastNonblock()
+			// Don't restart the server if there was any error.
+			return
+		}
+		chRunNewServer <- newBinaryPath
 	})
 	return nil
 }
 
-func runGolangCILint(ctx context.Context, st *state.Tracker) {
+func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.Config) {
 	startLinting := time.Now()
-	c := exec.CommandContext(ctx, "golangci-lint", "run", config.App.DirSrcRoot+"/...")
-	if buf, err := c.CombinedOutput(); err != nil {
+	buf, err := cmdrun.Run(
+		ctx, conf.App.DirWork, "golangci-lint", "run", conf.App.DirSrcRoot+"/...",
+	)
+	if errors.Is(err, cmdrun.ErrExitCode1) {
+		st.Set(statetrack.IndexGolangciLint, string(buf))
+		return
+	} else if err != nil {
 		log.Errorf("failed running golangci-lint: %v", err)
-		st.SetErrGolangCILint(string(buf))
 		return
 	}
-	st.SetErrGolangCILint("")
+	st.Set(statetrack.IndexGolangciLint, "")
 	log.Durf("linted", time.Since(startLinting))
 }
 
-func buildAndRerunServer(ctx context.Context, st *state.Tracker) {
+func buildServer(
+	ctx context.Context, st *statetrack.Tracker, conf *config.Config,
+) (newBinaryPath string) {
 	startBuilding := time.Now()
-	if err := os.MkdirAll(config.serverOutPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(conf.ServerOutPath(), os.ModePerm); err != nil {
 		log.Errorf("creating go binary output file path in %q: %v",
-			config.serverOutPath, err)
-		st.SetErrGo(err.Error())
+			conf.ServerOutPath(), err)
+		st.Set(statetrack.IndexGo, err.Error())
 		return
 	}
 
-	binaryPath := makeUniqueServerOutPath(config.serverOutPath)
+	binaryPath := makeUniqueServerOutPath(conf.ServerOutPath())
 
 	// Register the binary path to make sure it's defer-deleted
 	filesToBeDeletedBeforeExit.Store(binaryPath)
 
 	args := append(
-		[]string{"build", "-o", binaryPath, config.App.DirCmd},
-		config.App.GoFlags...,
+		[]string{"build", "-o", binaryPath, conf.App.DirCmd},
+		conf.App.GoFlags...,
 	)
-	c := exec.CommandContext(ctx, "go", args...)
-	c.Dir = config.App.DirWork
-	if buf, err := c.CombinedOutput(); err != nil {
+	buf, err := cmdrun.Run(ctx, conf.App.DirWork, "go", args...)
+	if err != nil {
 		log.Errorf("failed compiling cmd/server")
-		st.SetErrGo(string(buf))
+		st.Set(statetrack.IndexGo, string(buf))
 		return
 	}
-	st.SetErrGo("")
+	st.Set(statetrack.IndexGo, "")
 	log.Durf("compiled cmd/server", time.Since(startBuilding))
-	chRerunServer <- binaryPath
+	return binaryPath
 }
 
 func makeUniqueServerOutPath(basePath string) string {
@@ -346,20 +503,25 @@ func makeUniqueServerOutPath(basePath string) string {
 	return path.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
 }
 
-func lintAndBuild(ctx context.Context, st *state.Tracker) {
+func lintAndBuildServer(
+	ctx context.Context, st *statetrack.Tracker, conf *config.Config,
+) (newBinaryPath string) {
+	if st.ErrIndex() == statetrack.IndexTempl {
+		return
+	}
 	var wg sync.WaitGroup
 	wg.Add(1)
-	rerunTriggerStart.Store(time.Now())
-	if config.Lint {
+	if conf.Lint {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runGolangCILint(ctx, st)
+			runGolangCILint(ctx, st, conf)
 		}()
 	}
 	go func() {
 		defer wg.Done()
-		buildAndRerunServer(ctx, st)
+		newBinaryPath = buildServer(ctx, st, conf)
 	}()
 	wg.Wait() // Wait for build and lint to finish.
+	return newBinaryPath
 }

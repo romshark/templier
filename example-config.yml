@@ -60,3 +60,53 @@ app:
   # app.flags defines the CLI arguments as a string provided
   # to the application server executable.
   flags: -host your-application:12000
+
+# custom-watchers defines custom file change watchers executing arbitrary commands
+# on certain file changes that isn't covered by a standard Templiér setup.
+custom-watchers:
+  - name: "Bundle JS"
+    # cmd specifies the command to run when a JavaScript or JSX file is changed.
+    # This is optional and can be left empty since sometimes all you want to do is
+    # rebuild, or restart or simply reload the browser tabs.
+    cmd: npm run build
+
+    # include defines that this watcher will watch all JavaScript and JSX files.
+    include: ["*.js", "*.jsx"]
+
+    # fail-on-error specifies that in case cmd returns error code 1 the output
+    # of the execution should be displayed in the browser, just like
+    # for example if the Go compiler fails to compile.
+    fail-on-error: true
+
+    # debounce specifies how long to wait for more file changes
+    # after the first one occured before executing cmd.
+    # Default debounce duration is applied if left empty.
+    debounce:
+
+    # requires specifies that browser tabs need to be reloaded when a .js or .jsx file
+    # changed and cmd was successfuly executed, but the server doesn't need to be
+    # rebuilt or restarted.
+    # This option accepts the following values:
+    #  - "" (or empty field) = no action, execute cmd and don't do anything else.
+    #  - "reload" = reload all browser tabs.
+    #  - "restart" = restart the server but don't rebuild it.
+    #  - "rebuild" = re-lint, rebuild and restart the server.
+    requires: "reload"
+
+  - name: "Restart on config change"
+    # cmd specifies that no special command needs to be executed since this watcher
+    # just triggers a server restart.
+    cmd:
+
+    # include specifies what kind of configuration files need to be watched.
+    include: ["*.yaml", "*.yml", "*.toml"]
+
+    # fail-on-error doesn't need to be specified when cmd is empty. Default is false.
+    fail-on-error:
+
+    # debounce specifies default debounce duration.
+    debounce:
+
+    # requires specifies that when a config file changes the server needs
+    # to be restarted, but doesn't need to be rebuilt.
+    requires: "restart"

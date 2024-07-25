@@ -17,7 +17,9 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/gorilla/websocket"
 	"github.com/romshark/templier/internal/broadcaster"
-	"github.com/romshark/templier/internal/state"
+	"github.com/romshark/templier/internal/config"
+	"github.com/romshark/templier/internal/log"
+	"github.com/romshark/templier/internal/statetrack"
 )
 
 const (
@@ -40,10 +42,9 @@ type Config struct {
 }
 
 type Server struct {
-	config            Config
+	config            *config.Config
 	httpClient        *http.Client
-	stateTracker      *state.Tracker
-	reloadInitiated   *broadcaster.SignalBroadcaster
+	stateTracker      *statetrack.Tracker
 	reload            *broadcaster.SignalBroadcaster
 	jsInjection       []byte
 	webSocketUpgrader websocket.Upgrader
@@ -52,10 +53,9 @@ type Server struct {
 
 func New(
 	httpClient *http.Client,
-	stateTracker *state.Tracker,
-	reloadInitiated *broadcaster.SignalBroadcaster,
+	stateTracker *statetrack.Tracker,
 	reload *broadcaster.SignalBroadcaster,
-	config Config,
+	config *config.Config,
 ) *Server {
 	var jsInjectionBuf bytes.Buffer
 	err := jsInjection(config.PrintJSDebugLogs, PathProxyEvents).Render(
@@ -66,19 +66,18 @@ func New(
 	}
 	_, _ = jsInjectionBuf.Write(bytesBodyClosingTag)
 	s := &Server{
-		config:          config,
-		httpClient:      httpClient,
-		stateTracker:    stateTracker,
-		reloadInitiated: reloadInitiated,
-		reload:          reload,
-		jsInjection:     jsInjectionBuf.Bytes(),
+		config:       config,
+		httpClient:   httpClient,
+		stateTracker: stateTracker,
+		reload:       reload,
+		jsInjection:  jsInjectionBuf.Bytes(),
 		webSocketUpgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin:     func(r *http.Request) bool { return true }, // Ignore CORS
 		},
 	}
-	s.reverseProxy = httputil.NewSingleHostReverseProxy(config.AppHost)
+	s.reverseProxy = httputil.NewSingleHostReverseProxy(config.App.Host.URL)
 	s.reverseProxy.Transport = &roundTripper{
 		maxRetries:      ReverseProxyRetries,
 		initialDelay:    ReverseProxyInitialDelay,
@@ -95,7 +94,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleProxyEvents(w, r)
 		return
 	}
-	if state := s.stateTracker.Get(); state.IsErr() {
+	if s.stateTracker.ErrIndex() != -1 {
 		s.handleErrPage(w, r)
 		return
 	}
@@ -182,7 +181,7 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := s.webSocketUpgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("🤖 ERR: upgrading to websocket:", err)
+		log.Errorf("upgrading to websocket: %v", err)
 		internalErr(w, "upgrading to websocket", err)
 		return
 	}
@@ -192,24 +191,28 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 	s.stateTracker.AddListener(notifyStateChange)
 	defer s.stateTracker.RemoveListener(notifyStateChange)
 
-	notifyReloadInitiated := make(chan struct{})
-	s.reloadInitiated.AddListener(notifyReloadInitiated)
-	defer s.reloadInitiated.RemoveListener(notifyReloadInitiated)
-
 	notifyReload := make(chan struct{})
 	s.reload.AddListener(notifyReload)
 	defer s.reload.RemoveListener(notifyReload)
 
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	go func() {
+		defer cancel()
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				break
+			}
+		}
+	}()
+
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-notifyStateChange:
 			if !writeWSMsg(c, bytesMsgReload) {
-				return // Disconnect
-			}
-		case <-notifyReloadInitiated:
-			if !writeWSMsg(c, bytesMsgReloadInitiated) {
 				return // Disconnect
 			}
 		case <-notifyReload:
@@ -237,33 +240,39 @@ func writeWSMsg(c *websocket.Conn, msg []byte) (ok bool) {
 	return err == nil
 }
 
-var (
-	bytesMsgReload          = []byte("r")
-	bytesMsgReloadInitiated = []byte("ri")
-)
+var bytesMsgReload = []byte("r")
+
+type Report struct{ Subject, Body string }
+
+func (s *Server) newReports() []Report {
+	if m := s.stateTracker.Get(statetrack.IndexTempl); m != "" {
+		return []Report{{Subject: "templ", Body: m}}
+	}
+	var report []Report
+	if m := s.stateTracker.Get(statetrack.IndexGolangciLint); m != "" {
+		report = append(report, Report{Subject: "golangci-lint", Body: m})
+	}
+	if m := s.stateTracker.Get(statetrack.IndexGo); m != "" {
+		report = append(report, Report{Subject: "go", Body: m})
+	}
+	for i, w := range s.config.CustomWatchers {
+		if m := s.stateTracker.Get(statetrack.IndexOffsetCustomWatcher + i); m != "" {
+			report = append(report, Report{Subject: w.Name, Body: m})
+		}
+	}
+	return report
+}
 
 func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
-	state := s.stateTracker.Get()
+	reports := s.newReports()
 
-	var header string
-	switch {
-	case state.ErrTempl != "":
-		header = "Error: Templ"
-	case state.ErrGo != "":
-		header = "Error: Compiling"
-	case state.ErrGolangCILint != "":
-		header = "Error: golangci-lint"
-	default:
-		header = "Error"
+	title := "1 error"
+	if len(reports) > 1 {
+		title = strconv.Itoa(len(reports)) + " errors"
 	}
-	title := header
 
-	comp := errpage(
-		title, header, string(state.Msg()),
-		s.config.PrintJSDebugLogs, PathProxyEvents,
-	)
-	err := comp.Render(r.Context(), w)
-	if err != nil {
+	comp := errpage(title, reports, s.config.PrintJSDebugLogs, PathProxyEvents)
+	if err := comp.Render(r.Context(), w); err != nil {
 		panic(fmt.Errorf("rendering errpage: %w", err))
 	}
 }

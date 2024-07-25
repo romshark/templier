@@ -1,52 +1,53 @@
-package main
+package config_test
 
 import (
 	_ "embed"
 	"testing"
 
+	"github.com/romshark/templier/internal/config"
 	"github.com/romshark/yamagiconf"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidateType(t *testing.T) {
-	err := yamagiconf.ValidateType[Config]()
+	err := yamagiconf.ValidateType[config.Config]()
 	require.NoError(t, err)
 }
 
 func TestSpaceSeparatedList(t *testing.T) {
 	type TestConfig struct {
-		List SpaceSeparatedList `yaml:"list"`
+		List config.SpaceSeparatedList `yaml:"list"`
 	}
 	for _, td := range []struct {
 		name   string
 		input  string
-		expect SpaceSeparatedList
+		expect config.SpaceSeparatedList
 	}{
 		{
 			name:   "empty",
 			input:  "list:",
-			expect: SpaceSeparatedList(nil),
+			expect: config.SpaceSeparatedList(nil),
 		},
 		{
 			name:   "empty_explicit",
 			input:  "list: ''",
-			expect: SpaceSeparatedList(nil),
+			expect: config.SpaceSeparatedList(nil),
 		},
 		{
 			name:   "single",
 			input:  "list: one_item",
-			expect: SpaceSeparatedList{"one_item"},
+			expect: config.SpaceSeparatedList{"one_item"},
 		},
 		{
 			name:   "spaces",
 			input:  "list: -flag value",
-			expect: SpaceSeparatedList{"-flag", "value"},
+			expect: config.SpaceSeparatedList{"-flag", "value"},
 		},
 		{
 			name:   "multiline",
 			input:  "list: |\n  first second\n  third\tfourth",
-			expect: SpaceSeparatedList{"first", "second", "third", "fourth"},
+			expect: config.SpaceSeparatedList{"first", "second", "third", "fourth"},
 		},
 	} {
 		t.Run(td.name, func(t *testing.T) {
@@ -56,14 +57,4 @@ func TestSpaceSeparatedList(t *testing.T) {
 			require.Equal(t, td.expect, actual.List)
 		})
 	}
-}
-
-//go:embed example-config.yml
-var exampleConfig string
-
-func TestExampleConfig(t *testing.T) {
-	var c Config
-
-	err := yamagiconf.Load(exampleConfig, &c)
-	require.NoError(t, err)
 }

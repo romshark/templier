@@ -1,0 +1,249 @@
+package config
+
+import (
+	"bytes"
+	"encoding"
+	"errors"
+	"flag"
+	"fmt"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gobwas/glob"
+	"github.com/romshark/templier/internal/action"
+	"github.com/romshark/templier/internal/log"
+	"github.com/romshark/yamagiconf"
+)
+
+var config Config
+
+type Config struct {
+	serverOutPath string // Initialized from os.Getwd and os.TempDir
+
+	App ConfigApp `yaml:"app"`
+
+	// Verbose enables verbose console logs when true.
+	// Verbose doesn't affect app server logs.
+	Verbose bool `yaml:"verbose"`
+
+	// Debounce is the file watcher debounce duration.
+	Debounce struct {
+		// Templ is the browser tab reload debounce duration
+		// for _templ.txt changes.
+		Templ time.Duration `yaml:"templ"`
+
+		// Go is the Go recompilation debounce duration.
+		Go time.Duration `yaml:"go"`
+	} `yaml:"debounce"`
+
+	// ProxyTimeout defines for how long the proxy must try retry
+	// requesting the application server when receiving connection refused error.
+	ProxyTimeout time.Duration `yaml:"proxy-timeout"`
+
+	// Lint runs golangci-lint before building if enabled.
+	Lint bool `yaml:"lint"`
+
+	// TemplierHost is the Templiér HTTP server host address.
+	// Example: "127.0.0.1:9999".
+	TemplierHost string `yaml:"templier-host" validate:"url,required"`
+
+	// PrintJSDebugLogs enables Templiér injected javascript debug logs in the browser.
+	PrintJSDebugLogs bool `yaml:"print-js-debug-logs"`
+
+	// TLS is optional, will serve HTTP instead of HTTPS if nil.
+	TLS *struct {
+		Cert string `yaml:"cert" validate:"filepath,required"`
+		Key  string `yaml:"key" validate:"filepath,required"`
+	} `yaml:"tls"`
+
+	// CustomWatchers defines custom file change watchers.
+	CustomWatchers []ConfigCustomWatcher `yaml:"custom-watchers"`
+}
+
+func (c *Config) ServerOutPath() string { return c.serverOutPath }
+
+type ConfigApp struct {
+	// DirSrcRoot is the source root directory for the application server.
+	DirSrcRoot string `yaml:"dir-src-root" validate:"dirpath,required"`
+
+	dirSrcRootAbsolute string // Initialized from DirSrcRoot
+
+	// Exclude defines glob expressions to match files exluded from watching.
+	Exclude GlobList `yaml:"exclude"`
+
+	// DirCmd is the server cmd directory containing the `main` function.
+	DirCmd string `yaml:"dir-cmd" validate:"dirpath,required"`
+
+	// DirWork is the working directory to run the application server from.
+	DirWork string `yaml:"dir-work" validate:"dirpath,required"`
+
+	// GoFlags are the CLI arguments to be passed to the go compiler when
+	// compiling the application server.
+	GoFlags SpaceSeparatedList `yaml:"go-flags"`
+
+	// Flags are the CLI arguments to be passed to the application server.
+	Flags SpaceSeparatedList `yaml:"flags"`
+
+	// Host is the application server host address.
+	// Example: "https://local.example.com:8080"
+	Host URL `yaml:"host" validate:"required"`
+}
+
+func (c *ConfigApp) DirSrcRootAbsolute() string { return c.dirSrcRootAbsolute }
+
+type ConfigCustomWatcher struct {
+	// Name is the display name for the custom watcher.
+	Name string `yaml:"name"`
+
+	// Include specifies glob expressions for what files to watch.
+	Include GlobList `yaml:"include"`
+
+	// Cmd specifies the command to run when an included file changed.
+	// Cmd will be executed in app.dir-work. This is optional and can be left empty
+	// since sometimes all you want to do is rebuild & restart or just restart
+	// the server, such as when a config file changes.
+	Cmd CmdStr `yaml:"cmd"`
+
+	// FailOnError specifies that in case cmd returns error code 1 the output
+	// of the execution should be displayed in the browser, just like
+	// for example if the Go compiler fails to compile.
+	FailOnError bool `yaml:"fail-on-error"`
+
+	// Debounce defines how long to wait for more file changes
+	// after the first one occured before executing cmd.
+	// Default debounce duration is applied if left empty.
+	Debounce time.Duration `yaml:"debounce"`
+
+	// Requires defines what action is required when an included file changed.
+	// Accepts the following options:
+	//
+	//  - "" (or simply keep the field empty): no action, just execute Cmd.
+	//  - "reload": Requires browser tabs to be reloaded.
+	//  - "restart": Requires the server process to be restarted.
+	//  - "rebuild": Requires the server to be rebuilt and restarted.
+	//
+	// This option overwrites regular behavior (for non-templ file changes it's "rebuild")
+	Requires Requires `yaml:"requires"`
+}
+
+func (w ConfigCustomWatcher) Validate() error {
+	if w.Name == "" {
+		w.Name = string(w.Cmd) // Use cmd as name if no name was provided.
+		if w.Name == "" {
+			return errors.New("cmd and name cannot both be empty")
+		}
+	}
+	if w.Requires == Requires(action.ActionNone) && w.Cmd == "" {
+		return fmt.Errorf("custom watcher %q requires no action, hence "+
+			" cmd must not be empty", w.Name)
+	}
+	return nil
+}
+
+type Requires action.Type
+
+func (r *Requires) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "":
+		*r = Requires(action.ActionNone)
+	case "reload":
+		*r = Requires(action.ActionReload)
+	case "restart":
+		*r = Requires(action.ActionRestart)
+	case "rebuild":
+		*r = Requires(action.ActionRebuild)
+	default:
+		return fmt.Errorf(`invalid requires action %q, `+
+			`use either of: ["" (empty, no action), "reload", "restart", "rebuild"]`,
+			string(text))
+	}
+	return nil
+}
+
+type CmdStr string
+
+func (c *CmdStr) UnmarshalText(t []byte) error {
+	*c = CmdStr(bytes.Trim(t, " \t\n\r"))
+	return nil
+}
+
+type URL struct{ URL *url.URL }
+
+func (u *URL) UnmarshalText(t []byte) error {
+	x, err := url.Parse(string(t))
+	if err != nil {
+		return err
+	}
+	u.URL = x
+	return nil
+}
+
+type GlobList []string
+
+func (e GlobList) Validate() error {
+	for i, expr := range config.App.Exclude {
+		if _, err := glob.Compile(expr); err != nil {
+			return fmt.Errorf("at index %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func MustParse() *Config {
+	var fConfigPath string
+	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
+	flag.Parse()
+
+	// Set default config
+	config.App.DirSrcRoot = "./"
+	config.App.DirCmd = "./"
+	config.App.DirWork = "./"
+	config.Debounce.Templ = 50 * time.Millisecond
+	config.Debounce.Go = 50 * time.Millisecond
+	config.ProxyTimeout = 2 * time.Second
+	config.Lint = true
+	config.PrintJSDebugLogs = false
+	config.TLS = nil
+
+	if fConfigPath != "" {
+		err := yamagiconf.LoadFile(fConfigPath, &config)
+		if err != nil {
+			log.Fatalf("reading config file: %v", err)
+		}
+	}
+
+	// Set default watch debounce
+	for i := range config.CustomWatchers {
+		if config.CustomWatchers[i].Debounce == 0 {
+			config.Debounce.Go = 50 * time.Millisecond
+		}
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("getting working dir: %v", err)
+	}
+	config.serverOutPath = path.Join(os.TempDir(), workingDir)
+
+	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
+	if err != nil {
+		log.Fatalf("getting absolute path for app.dir-src-root: %v", err)
+	}
+	return &config
+}
+
+type SpaceSeparatedList []string
+
+var _ encoding.TextUnmarshaler = &SpaceSeparatedList{}
+
+func (l *SpaceSeparatedList) UnmarshalText(t []byte) error {
+	if string(t) == "" {
+		return nil
+	}
+	*l = strings.Fields(string(t))
+	return nil
+}

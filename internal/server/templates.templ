@@ -1,7 +1,8 @@
 package server
 
 templ errpage(
-	title, header, message string,
+	title string,
+	content []Report,
 	printDebugLogs bool, wsEventsEndpoint string,
 ) {
 	<!DOCTYPE html>
@@ -46,8 +47,13 @@ templ errpage(
 			</style>
 		</head>
 		<body>
-			<h3>{ header }</h3>
-			<pre>{ message }</pre>
+			for i, c := range content {
+				<h3>{ c.Subject }</h3>
+				<pre>{ c.Body }</pre>
+				if i+1 != len(content) {
+					<hr/>
+				}
+			}
 			@jsInjection(printDebugLogs, wsEventsEndpoint)
 		</body>
 	</html>
@@ -70,46 +76,23 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 				document.getElementById('_templier__jsInjection').textContent
 			)
 
-			let reloadIndicator
-			function showLoadingIndicator() {
-				if (reloadIndicator != null) {
-					return
-				}
-				displayingLoadingIndicator = true
-				reloadIndicator = document.createElement('p')
-				reloadIndicator.innerHTML = 'Reloading...'
-				reloadIndicator.style.top = 0
-				reloadIndicator.style.left = 0
-				reloadIndicator.style.width = '100%'
-				reloadIndicator.style.padding = '.25rem'
-				reloadIndicator.style.position = 'fixed'
-				reloadIndicator.style.background = 'rgba(0,0,0,.75)'
-				reloadIndicator.style.color = 'white'
-				document.body.appendChild(reloadIndicator)
-			}
-			function hideLoadingIndicator() {
-				if (reloadIndicator == null) {
-					return
-				}
-				reloadIndicator.remove()
-				reloadIndicator = null
-			}
-
 			let reconnectingOverlay 
 			function showReconnecting() {
 				if (reconnectingOverlay != null) {
 					return
 				}
 				reconnectingOverlay = document.createElement('p')
-				reconnectingOverlay.innerHTML = '🔌 reconnecting Templier...'
+				reconnectingOverlay.innerHTML = '<span>🔌 reconnecting Templier...</span>'
+				reconnectingOverlay.style.margin = 0
+				reconnectingOverlay.style.display = 'flex'
+				reconnectingOverlay.style.justifyContent = 'center'
+				reconnectingOverlay.style.alignItems = 'center'
 				reconnectingOverlay.style.position = 'fixed'
 				reconnectingOverlay.style.top = 0
 				reconnectingOverlay.style.left = 0
 				reconnectingOverlay.style.fontSize = '1.25rem'
 				reconnectingOverlay.style.width = '100%'
 				reconnectingOverlay.style.height = '100%'
-				reconnectingOverlay.style.padding = '2rem'
-				reconnectingOverlay.style.textAlign = 'center'
 				reconnectingOverlay.style.background = 'rgba(0,0,0,.8)'
 				reconnectingOverlay.style.color = 'white'
 				document.body.appendChild(reconnectingOverlay)
@@ -130,9 +113,9 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 				ws.onopen = function (e) {
 					if (reconnectingOverlay != null) {
 						window.location.reload()
+						return
 					}
 					hideReconnecting()
-					hideLoadingIndicator()
 					if (params.PrintDebugLogs) {
 						console.debug('templier: connectWebsocket connected')
 					}
@@ -146,16 +129,12 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 					switch (e.data) {
 					case 'r': // Reload
 						window.location.reload()
-					case 'ri': // Reload initiated
-						showLoadingIndicator()
-						return
 					case 's': // Shutdown
 
 					}
 				}
 				ws.onclose = function (e) {
 					showReconnecting()
-					hideLoadingIndicator()
 					if (params.PrintDebugLogs) {
 						console.debug('templier: websocket disconnected, reconnecting...')
 					}

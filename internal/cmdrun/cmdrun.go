@@ -1,22 +1,47 @@
-package templrun
+package cmdrun
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 
 	"github.com/romshark/templier/internal/log"
-	"github.com/romshark/templier/internal/state"
+	"github.com/romshark/templier/internal/statetrack"
 )
 
-// RunWatch starts `templ generate --log-level debug --watch` and reads its
+var ErrExitCode1 = errors.New("exit code 1")
+
+// Run runs an arbitrary command and returns (output, ErrExitCode1)
+// if it exits with error code 1, otherwise returns the original error.
+func Run(
+	ctx context.Context, workDir string, cmd string, args ...string,
+) (out []byte, err error) {
+	c := exec.CommandContext(ctx, cmd, args...)
+	c.Dir = workDir
+
+	out, err = c.CombinedOutput()
+	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+		return out, ErrExitCode1
+	} else if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Sh runs an arbitrary shell script and behaves similar to Run.
+func Sh(ctx context.Context, workDir string, sh string) (out []byte, err error) {
+	return Run(ctx, workDir, "sh", "-c", sh)
+}
+
+// RunTemplWatch starts `templ generate --log-level debug --watch` and reads its
 // stdout pipe for failure and success logs updating the state accordingly.
 // When ctx is canceled the interrupt signal is sent to the watch process
 // and graceful shutdown is awaited.
-func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
+func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) error {
 	// Don't use CommandContext since it will kill the process
 	// which we don't want. We want the command to finish.
 	cmd := exec.Command("templ", "generate", "--log-level", "debug", "--watch")
@@ -39,9 +64,9 @@ func RunWatch(ctx context.Context, workDir string, st *state.Tracker) error {
 			b := scanner.Bytes()
 			switch {
 			case bytes.HasPrefix(b, bytesPrefixErr):
-				st.SetErrTempl(scanner.Text())
+				st.Set(statetrack.IndexTempl, scanner.Text())
 			case bytes.HasPrefix(b, bytesPrefixErrCleared):
-				st.SetErrTempl("")
+				st.Set(statetrack.IndexTempl, "")
 			}
 		}
 		if err := scanner.Err(); err != nil {

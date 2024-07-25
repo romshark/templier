@@ -73,7 +73,7 @@ func Infof(f string, v ...any) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖:")
+	fmt.Fprint(out, "🤖: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 }
@@ -82,7 +82,7 @@ func Infof(f string, v ...any) {
 func Errorf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fRed.Fprint(out, "🤖 ERR:")
+	fRed.Fprint(out, "🤖 ERR: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 }
@@ -91,7 +91,7 @@ func Errorf(f string, v ...any) {
 func Fatalf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fRed.Fprint(out, "🤖 ERR:")
+	fRed.Fprint(out, "🤖 ERR: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 	os.Exit(1)
