@@ -195,11 +195,8 @@ func main() {
 	}
 
 	<-ctx.Done()
-	fmt.Println("CANCELED; WAITING...")
 	wg.Wait()
-	fmt.Println("WAITED SUCCESSFULY; STOPPING...")
 	chStopServer <- struct{}{}
-	fmt.Println("STOPPED")
 }
 
 // rebuildLock prevents more than one rebuilder goroutine at a time.
