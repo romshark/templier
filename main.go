@@ -160,6 +160,13 @@ func main() {
 		debouncedTemplTxtChange: debouncedTempl,
 		conf:                    conf,
 	}
+
+	var err error
+	onChangeHandler.baseFilePath, err = filepath.Abs(conf.App.DirWork)
+	if err != nil {
+		log.Fatalf("determining absolute base file path: %v", err)
+	}
+
 	watcher, err := watcher.New(conf.App.DirSrcRootAbsolute(), onChangeHandler.Handle)
 	if err != nil {
 		log.Fatalf("initializing file watcher: %v", err)
@@ -326,6 +333,7 @@ func runAppLauncher(
 }
 
 type FileChangeHandler struct {
+	baseFilePath            string
 	customWatchers          []customWatcher
 	stateTracker            *statetrack.Tracker
 	reload                  *broadcaster.SignalBroadcaster
@@ -339,6 +347,14 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		return nil // Ignore chmod events.
 	}
 
+	relativeFileName, err := filepath.Rel(h.baseFilePath, e.Name)
+	if err != nil {
+		log.Fatalf(
+			"determining relative path for %q with base path %q",
+			e.Name, h.conf.App.DirWork,
+		)
+	}
+
 	var wg sync.WaitGroup
 	var customWatcherTriggered atomic.Bool
 	var act action.SyncStatus
@@ -347,7 +363,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		// Each custom watcher will be executed in the goroutine of its debouncer.
 		wg.Add(len(h.customWatchers))
 		for i, w := range h.customWatchers {
-			if !w.isFilePathIncluded(e.Name) {
+			if !w.isFilePathIncluded(relativeFileName) {
 				// File doesn't match any glob
 				wg.Done()
 				continue
