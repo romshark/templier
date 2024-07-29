@@ -5,13 +5,13 @@ import (
 	"crypto/tls"
 	_ "embed"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -254,11 +254,6 @@ func runAppLauncher(
 				latestSrvCmd.Process.Pid, err)
 			return false
 		}
-		if err := os.Remove(latestBinaryPath); err != nil {
-			log.Errorf("removing binary file %q: %v", latestBinaryPath, err)
-			return false
-		}
-		filesToBeDeletedBeforeExit.Delete(latestBinaryPath)
 		return true
 	}
 
@@ -266,7 +261,7 @@ func runAppLauncher(
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}}
 
-	rerun := func(binaryPath string) {
+	rerun := func() {
 		start := time.Now()
 		stopServer()
 
@@ -277,8 +272,7 @@ func runAppLauncher(
 			return
 		}
 
-		latestBinaryPath = binaryPath
-		c := exec.Command(binaryPath)
+		c := exec.Command(latestBinaryPath)
 		c.Args = conf.App.Flags
 		c.Stdout, c.Stderr = os.Stdout, os.Stderr
 		latestSrvCmd = c
@@ -323,9 +317,16 @@ func runAppLauncher(
 	for {
 		select {
 		case <-chRerunServer:
-			rerun(latestBinaryPath)
+			rerun()
 		case newBinaryPath := <-chRunNewServer:
-			rerun(newBinaryPath)
+			if latestBinaryPath != "" {
+				if err := os.Remove(latestBinaryPath); err != nil {
+					log.Errorf("removing binary file %q: %v", latestBinaryPath, err)
+				}
+				filesToBeDeletedBeforeExit.Delete(latestBinaryPath)
+			}
+			latestBinaryPath = newBinaryPath
+			rerun()
 		case <-chStopServer:
 			stopServer()
 		}
