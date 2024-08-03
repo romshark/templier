@@ -41,6 +41,7 @@ app:
   # to match files exluded from watching.
   exclude:
     - .* # all hidden files and directories
+    - "*~" # all temporary files with a tilde (fixes jetbrains IDEs save)
 
   # app.dir-cmd defines the path to the main package directory
   # within the app source directory.
