@@ -257,7 +257,7 @@ func runAppLauncher(
 		return true
 	}
 
-	healtCheckClient := &http.Client{Transport: &http.Transport{
+	healthCheckClient := &http.Client{Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}}
 
@@ -301,7 +301,7 @@ func runAppLauncher(
 				log.Errorf("initializing preflight request: %v", err)
 				continue
 			}
-			_, err = healtCheckClient.Do(r)
+			_, err = healthCheckClient.Do(r)
 			if err == nil {
 				break // Server is ready to receive requests
 			}

@@ -135,3 +135,25 @@ JavaScript that opens a websocket connection to Templiér from the browser tab t
 for events and reload or display necessary status information when necessary.
 In the CLI console logs, all Templiér logs are prefixed with 🤖,
 while application server logs are displayed without the prefix.
+
+## Development
+
+### Building
+
+You can build Templiér using the following command:
+
+```sh
+go build -o templier ./bin/templier
+```
+
+If you're adding bin library to your path, you can just execute the binary.
+
+zsh:
+```zsh
+export PATH=$(pwd)/bin:$PATH
+```
+
+[fish](https://fishshell.com/):
+```fish
+fish_add_path (pwd)/bin
+```
