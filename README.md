@@ -73,14 +73,14 @@ If custom watcher `A` requires `reload` but custom watcher `B` requires `rebuild
 ### Custom Watcher Example: JavaScript Bundler
 
 The following custom watcher will watch for `.js` file updates and automatically run
-the CLI command `npm run bundle`, after which all browser tabs will be reloaded
+the CLI command `npm run js:bundle`, after which all browser tabs will be reloaded
 using `requires: reload`. `fail-on-error: true` specifies that if `eslint` or `esbuild`
 fail in the process, their error output will be shown directly in the browser.
 
 ```yaml
 custom-watchers:
   - name: Bundle JS
-    cmd: npm run bundle
+    cmd: npm run bundle:js
     include: ["*.js"]
     fail-on-error: true
     debounce:
@@ -92,10 +92,70 @@ The `cmd` above refers to a script defined in `package.json` scripts:
 
 ```json
 "scripts": {
-  "bundle": "eslint . && esbuild --bundle --minify --outfile=./dist.js server/js/bundle.js",
-  "lint": "eslint ."
+  "bundle:js": "eslint . && esbuild --bundle --minify --outfile=./dist.js server/js/bundle.js",
+  "lint:js": "eslint ."
 },
 ```
+
+### Custom Watcher Example: TailwindCSS and PostCSS
+
+[TailwindCSS](https://tailwindcss.com/) and [PostCSS](https://postcss.org/) are often
+used to simplify CSS styling and a custom watcher enables Templiér to hot-reload the
+styles on changes:
+
+First, configure `postcss.config.js`:
+
+```js
+module.exports = {
+  content: [
+    "./server/**/*.templ", // Include any .templ files
+  ],
+  plugins: [require("tailwindcss"), require("autoprefixer")],
+};
+```
+
+and `tailwind.config.js`:
+
+```js
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./**/*.{html,js,templ}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [require("tailwindcss"), require("autoprefixer")],
+};
+```
+
+Create a `package.json` file and install all necessary dev-dependencies
+
+```sh
+npm install tailwindcss postcss postcss-cli autoprefixer --save-dev
+```
+
+Add the scripts to `package.json` (where `input.css` is your main CSS
+file containing your global custom styles and `public/dist.css` is the built CSS
+output file that's linked to in your HTML):
+
+```json
+"scripts": {
+  "build:css": "postcss ./input.css -o ./public/dist.css",
+  "watch:css": "tailwindcss -i ./input.css -o ./public/dist.css --watch"
+},
+```
+
+Finally, define a Templiér custom watcher to watch all Templ and CSS files and rebuild:
+
+```yaml
+- name: "Build CSS"
+  cmd: npm run build:css
+  include: ["*.templ", "input.css"]
+  fail-on-error: true
+  debounce:
+  requires: reload
+```
+
+NOTE: if your `dist.css` is embedded, you may need to use `requires: rebuild`.
 
 ### Custom Watcher Example: Reload on config change.
 
