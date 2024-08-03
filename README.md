@@ -198,6 +198,9 @@ while application server logs are displayed without the prefix.
 
 ## Development
 
+Run the tests using `go test -race ./...` and use the latest version of
+[golangci-lint](https://golangci-lint.run/) to ensure code integrity.
+
 ### Building
 
 You can build Templiér using the following command:
