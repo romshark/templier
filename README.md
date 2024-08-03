@@ -153,7 +153,7 @@ zsh:
 export PATH=$(pwd)/bin:$PATH
 ```
 
-fish:
+[fish](https://fishshell.com/):
 ```fish
 fish_add_path (pwd)/bin
 ```
