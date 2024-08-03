@@ -174,7 +174,9 @@ func main() {
 
 	go func() {
 		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("running file watcher: %v", err)
+			log.Errorf("Unexpected error in file watcher: %v", err)
+			cancel()
+			chStopServer <- struct{}{}
 		}
 	}()
 
