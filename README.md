@@ -17,6 +17,14 @@ Templiér is a Go web frontend development environment for
 - Supports templ's debug mode for fast live reload.
 - Avoids reloading when files didn't change by keeping track of hashsums.
 - Allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
+  - example: [Bundle JavaScript](#custom-watcher-example-javascript-bundler)
+  - example: [Rebuild CSS](#custom-watcher-example-tailwindcss-and-postcss)
+  - example: [Restart on config change](#custom-watcher-example-reload-on-config-change)
+
+ℹ️ Make sure you stop Templiér before you commit your git changes!
+Templiér uses templ's watcher internally which rebuilds all `_templ.go` files
+for production when it exits. All `_templ.go` files are optimized for development
+speed (hot-reload using `_templ.txt` files) while Templiér is running.
 
 ## Quick Start
 
@@ -147,7 +155,7 @@ output file that's linked to in your HTML):
 Finally, define a Templiér custom watcher to watch all Templ and CSS files and rebuild:
 
 ```yaml
-- name: "Build CSS"
+- name: Build CSS
   cmd: npm run build:css
   include: ["*.templ", "input.css"]
   fail-on-error: true
@@ -212,11 +220,13 @@ go build -o templier ./bin/templier
 If you're adding bin library to your path, you can just execute the binary.
 
 zsh:
+
 ```zsh
 export PATH=$(pwd)/bin:$PATH
 ```
 
 [fish](https://fishshell.com/):
+
 ```fish
 fish_add_path (pwd)/bin
 ```
