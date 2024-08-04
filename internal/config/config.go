@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -200,7 +201,13 @@ func (e GlobList) Validate() error {
 func PrintVersionInfoAndExit() {
 	defer os.Exit(0)
 
-	f, err := os.Open(os.Args[0])
+	p, err := exec.LookPath(os.Args[0])
+	if err != nil {
+		fmt.Printf("resolving executable file path: %v\n", err)
+		os.Exit(1)
+	}
+
+	f, err := os.Open(p)
 	if err != nil {
 		fmt.Printf("opening executable file %q: %v\n", os.Args[0], err)
 		os.Exit(1)
