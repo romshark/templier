@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"encoding"
 	"errors"
 	"flag"
@@ -18,6 +19,9 @@ import (
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/yamagiconf"
 )
+
+// version is set from ldflags="-X internal/config.Version"
+var version string
 
 var config Config
 
@@ -193,10 +197,34 @@ func (e GlobList) Validate() error {
 	return nil
 }
 
+func PrintVersionInfoAndExit() {
+	defer os.Exit(0)
+
+	f, err := os.Open(os.Args[0])
+	if err != nil {
+		fmt.Printf("opening executable file %q: %v\n", os.Args[0], err)
+		os.Exit(1)
+	}
+
+	info, err := buildinfo.Read(f)
+	if err != nil {
+		fmt.Printf("Reading build information: %v\n", err)
+	}
+
+	fmt.Printf("Templiér %s\n\n", version)
+	fmt.Printf("%v\n", info)
+}
+
 func MustParse() *Config {
+	var fVersion bool
 	var fConfigPath string
+	flag.BoolVar(&fVersion, "version", false, "show version")
 	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
 	flag.Parse()
+
+	if fVersion {
+		PrintVersionInfoAndExit()
+	}
 
 	// Set default config
 	config.App.DirSrcRoot = "./"
