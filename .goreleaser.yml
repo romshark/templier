@@ -52,3 +52,4 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+      - "^ci:"
