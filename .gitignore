@@ -26,3 +26,5 @@ bin
 
 # Editors
 .idea
+
+dist/

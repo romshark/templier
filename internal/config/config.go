@@ -20,7 +20,7 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-// version is set from ldflags="-X internal/config.Version"
+// version is set from ldflags="-X github.com/romshark/templier/internal/config.version"
 var version string
 
 var config Config
