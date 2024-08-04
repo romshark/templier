@@ -63,8 +63,12 @@ func (c customWatcher) isFilePathIncluded(s string) bool {
 	return false
 }
 
+// version is set by goreleaser,
+// see: https://goreleaser.com/cookbooks/using-main.version/
+var version string
+
 func main() {
-	conf := config.MustParse()
+	conf := config.MustParse(version)
 	log.SetVerbose(conf.Verbose)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

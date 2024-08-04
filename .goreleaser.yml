@@ -28,8 +28,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    ldflags:
-      - "-X github.com/romshark/templier/internal/config.version={{.Version}}"
 
 archives:
   - format: tar.gz

@@ -21,9 +21,6 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-// version is set from ldflags="-X github.com/romshark/templier/internal/config.version"
-var version string
-
 var config Config
 
 type Config struct {
@@ -198,7 +195,7 @@ func (e GlobList) Validate() error {
 	return nil
 }
 
-func PrintVersionInfoAndExit() {
+func PrintVersionInfoAndExit(version string) {
 	defer os.Exit(0)
 
 	p, err := exec.LookPath(os.Args[0])
@@ -218,11 +215,11 @@ func PrintVersionInfoAndExit() {
 		fmt.Printf("Reading build information: %v\n", err)
 	}
 
-	fmt.Printf("Templiér %s\n\n", version)
+	fmt.Printf("Templiér v%s\n\n", version)
 	fmt.Printf("%v\n", info)
 }
 
-func MustParse() *Config {
+func MustParse(version string) *Config {
 	var fVersion bool
 	var fConfigPath string
 	flag.BoolVar(&fVersion, "version", false, "show version")
@@ -230,7 +227,7 @@ func MustParse() *Config {
 	flag.Parse()
 
 	if fVersion {
-		PrintVersionInfoAndExit()
+		PrintVersionInfoAndExit(version)
 	}
 
 	// Set default config
