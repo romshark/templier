@@ -178,7 +178,9 @@ func main() {
 
 	go func() {
 		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("running file watcher: %v", err)
+			log.Errorf("Unexpected error in file watcher: %v", err)
+			cancel()
+			chStopServer <- struct{}{}
 		}
 	}()
 
@@ -379,7 +381,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			w.debounced(func() { // This runs in a separate goroutine.
 				defer wg.Done()
 				start := time.Now()
-				defer func() { log.Durf(string(w.name), time.Since(start)) }()
+				defer func() { log.Durf(w.name, time.Since(start)) }()
 				o, err := cmdrun.Sh(ctx, h.conf.App.DirWork, string(w.cmd))
 				output := string(o)
 				if errors.Is(err, cmdrun.ErrExitCode1) {
