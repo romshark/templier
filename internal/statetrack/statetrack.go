@@ -87,8 +87,3 @@ func (t *Tracker) Set(index int, msg string) {
 	t.errMsgBuffer[index] = msg
 	t.broadcaster.BroadcastNonblock()
 }
-
-func (t *Tracker) Iterate(fn func(index int, msg string)) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-}
