@@ -408,39 +408,38 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 				defer wg.Done()
 				start := time.Now()
 				defer func() { log.Durf(string(w.name), time.Since(start)) }()
-				o, err := cmdrun.Sh(ctx, h.conf.App.DirWork, string(w.cmd))
-				output := string(o)
-				if errors.Is(err, cmdrun.ErrExitCode1) {
-					if w.failOnErr {
-						h.stateTracker.Set(
-							statetrack.IndexOffsetCustomWatcher+index, output,
-						)
-						h.reload.BroadcastNonblock()
-					} else {
-						// Log the error when fail-on-error is disabled.
+				if w.cmd != "" {
+					o, err := cmdrun.Sh(ctx, h.conf.App.DirWork, string(w.cmd))
+					output := string(o)
+					if errors.Is(err, cmdrun.ErrExitCode1) {
+						if w.failOnErr {
+							h.stateTracker.Set(
+								statetrack.IndexOffsetCustomWatcher+index, output,
+							)
+							h.reload.BroadcastNonblock()
+						} else {
+							// Log the error when fail-on-error is disabled.
+							log.Errorf(
+								"custom watcher %q exited with code 1: %s",
+								w.cmd, output,
+							)
+						}
+						return
+					} else if err != nil {
+						// The reason this cmd failed was not just exit code 1.
+						if w.failOnErr {
+							h.stateTracker.Set(
+								statetrack.IndexOffsetCustomWatcher+index, output,
+							)
+						}
 						log.Errorf(
-							"custom watcher %q exited with code 1: %s",
+							"executing custom watcher %q: %s",
 							w.cmd, output,
 						)
 					}
-					return
-				} else if err != nil {
-					// The reason this cmd failed was not just exit code 1.
-					if w.failOnErr {
-						h.stateTracker.Set(
-							statetrack.IndexOffsetCustomWatcher+index, output,
-						)
-					}
-					log.Errorf(
-						"executing custom watcher %q: %s",
-						w.cmd, output,
-					)
-				} else {
-					h.stateTracker.Set(
-						statetrack.IndexOffsetCustomWatcher+index, "",
-					)
-					act.Require(w.requires)
 				}
+				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+index, "")
+				act.Require(w.requires)
 			})
 		}
 	}
