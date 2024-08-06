@@ -1,7 +1,6 @@
 package statetrack
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/romshark/templier/internal/broadcaster"
@@ -72,7 +71,6 @@ func (s *Tracker) RemoveListener(c chan<- struct{}) {
 func (t *Tracker) Reset() {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	fmt.Println("---- FUCKING RESET")
 	for i := range t.errMsgBuffer {
 		t.errMsgBuffer[i] = ""
 	}
