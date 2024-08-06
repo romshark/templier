@@ -140,6 +140,7 @@ func TestWatcherRunCancelContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { chErr <- w.Run(ctx) }()
 	require.NoError(t, w.Add(base))
+	w.WaitRunning()
 
 	ExpectWatched(t, w, []string{base})
 
@@ -337,7 +338,7 @@ func runNewWatcher(
 	wg.Add(1)
 	t.Cleanup(func() {
 		require.NoError(t, w.Close())
-		wg.Wait()
+		wg.Wait() // Wait until the runner stops
 	})
 	go func() {
 		defer wg.Done()
@@ -347,6 +348,7 @@ func runNewWatcher(
 		}
 		panic(err)
 	}()
+	w.WaitRunning()
 	return w
 }
 

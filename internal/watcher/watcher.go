@@ -69,12 +69,26 @@ var (
 	ErrRunning = errors.New("watcher is already running")
 )
 
+// WaitRunning blocks and returns once the watcher is running.
+// Returns immediately if the watcher is closed or running.
+func (w *Watcher) WaitRunning() {
+	w.lock.Lock()
+	state := w.state
+	w.lock.Unlock()
+
+	if state == stateClosed {
+		return
+	}
+
+	w.runnerStart.Wait()
+}
+
 // RangeWatchedDirs calls fn for every currently watched directory.
 // Noop if the watcher is closed.
 func (w *Watcher) RangeWatchedDirs(fn func(path string) (continueIter bool)) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.state != stateRunning || w.state == stateClosed {
+	if w.state == stateClosed {
 		return
 	}
 	for p := range w.watchedDirs {
@@ -285,7 +299,6 @@ var errStopTraversal = errors.New("stop recursive traversal")
 // Remove stops watching the directory and all of its subdirectories recursively.
 // Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Remove(dir string) error {
-	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	if w.state == stateClosed {
