@@ -90,6 +90,7 @@ custom-watchers:
   - name: Bundle JS
     cmd: npm run bundle:js
     include: ["*.js"]
+    exclude: ["path/to/your/dist.js"]
     fail-on-error: true
     debounce:
     # reload browser after successful bundling
@@ -158,6 +159,7 @@ Finally, define a Templiér custom watcher to watch all Templ and CSS files and 
 - name: Build CSS
   cmd: npm run build:css
   include: ["*.templ", "input.css"]
+  exclude: ["path/to/your/dist.css"]
   fail-on-error: true
   debounce:
   requires: reload
@@ -175,6 +177,7 @@ require rebuilding the server. Restarting the server may be sufficient in this c
 - name: Restart server on config change
   cmd: # No command, just restart
   include: ["*.toml"] # Any TOML file
+  exclude:
   fail-on-error:
   debounce:
   requires: restart
