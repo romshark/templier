@@ -77,7 +77,7 @@ var version string
 
 func main() {
 	conf := config.MustParse(version)
-	log.SetVerbose(conf.Verbose)
+	log.SetLogLevel(log.LogLevel(conf.Log))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -85,6 +85,7 @@ func main() {
 	defer func() { // Make sure files created by this process are cleaned up
 		log.Infof("cleaning up all created files")
 		filesToBeDeletedBeforeExit.ForEach(func(filePath string) {
+			log.Debugf("removing file before exit: %q", filePath)
 			if err := os.RemoveAll(filePath); err != nil {
 				log.Errorf("removing (%q): %v", filePath, err)
 			}
@@ -185,6 +186,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("determining absolute base file path: %v", err)
 	}
+	log.Debugf("set absolute base file path: %q", onChangeHandler.baseFilePath)
 
 	watcher, err := watcher.New(conf.App.DirSrcRootAbsolute(), onChangeHandler.Handle)
 	if err != nil {
@@ -219,6 +221,7 @@ func main() {
 	}
 
 	<-ctx.Done()
+	log.Debugf("waiting for server to shut down")
 	wg.Wait()
 	chStopServer <- struct{}{}
 }
@@ -262,6 +265,7 @@ func runAppLauncher(
 		if latestSrvCmd == nil || latestSrvCmd.Process == nil {
 			return true
 		}
+		log.Debugf("stopping app server with pid %d", latestSrvCmd.Process.Pid)
 		if err := latestSrvCmd.Process.Signal(os.Interrupt); err != nil {
 			log.Errorf("sending interrupt signal to app server: %v", err)
 			return false
@@ -302,9 +306,11 @@ func runAppLauncher(
 
 		log.TemplierRestartingServer(conf.App.DirCmd)
 
+		log.Debugf("running app server command: %s", latestSrvCmd.String())
 		if err := c.Start(); err != nil {
 			log.Errorf("running %s: %v", conf.App.DirCmd, err)
 		}
+		log.Debugf("app server running (pid: %d)", c.Process.Pid)
 
 		var exitCode atomic.Int32
 		exitCode.Store(-1)
@@ -319,7 +325,7 @@ func runAppLauncher(
 				return
 			}
 			// Some other error occurred
-			panic(err)
+			log.Errorf("health check: waiting for process: %v", err)
 		}()
 
 		const maxRetries = 100
@@ -333,6 +339,8 @@ func runAppLauncher(
 				return
 			}
 			// Wait for the server to be ready
+			log.Debugf("health check (%d/%d): %s %q",
+				retry, maxRetries, http.MethodOptions, conf.App.Host.URL.String())
 			r, err := http.NewRequest(
 				http.MethodOptions, conf.App.Host.URL.String(), http.NoBody,
 			)
@@ -343,13 +351,17 @@ func runAppLauncher(
 			}
 			_, err = healthCheckClient.Do(r)
 			if err == nil {
+				log.Debugf("health check: OK, " +
+					"app server is ready to receive requests")
 				break // Server is ready to receive requests
 			}
+			log.Debugf("health check: err: %v", err)
 			if code := exitCode.Load(); code != -1 && code != 0 {
 				log.Errorf("health check: app server exited with exit code %d", code)
 				stateTracker.Set(statetrack.IndexExit, bufOutputCombined.String())
 				return
 			}
+			log.Debugf("health check: wait: %s", ServerHealthPreflightWaitInterval)
 			time.Sleep(ServerHealthPreflightWaitInterval)
 		}
 
@@ -390,6 +402,7 @@ type FileChangeHandler struct {
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
 	if e.Op == fsnotify.Chmod {
+		log.Debugf("ignoring file operation (%s): %q", e.Op.String(), e.Name)
 		return nil // Ignore chmod events.
 	}
 
@@ -400,6 +413,8 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			e.Name, h.conf.App.DirWork,
 		)
 	}
+
+	log.Debugf("handling file operation (%s): %q", e.Op.String(), relativeFileName)
 
 	var wg sync.WaitGroup
 	var customWatcherTriggered atomic.Bool
@@ -463,17 +478,23 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		switch act.Load() {
 		case action.ActionNone:
 			// Custom watchers require no further action to be taken.
+			log.Debugf("custom watchers: no action")
 			return nil
 		case action.ActionReload:
 			// Custom watchers require just a reload of all browser tabs.
+			log.Debugf("custom watchers: notify reload")
 			h.reload.BroadcastNonblock()
 			return nil
 		case action.ActionRestart:
 			// Custom watchers require just a server restart.
+			log.Debugf("custom watchers: rerun app server")
 			chRerunServer <- struct{}{}
 			return nil
+		default:
+			log.Debugf("custom watchers: rebuild app server")
 		}
 	} else {
+		log.Debugf("custom watchers: no watcher triggered")
 		// No custom watcher triggered, follow default pipeline.
 		if strings.HasSuffix(e.Name, ".templ") {
 			return nil // Ignore templ files, templ watch will take care of them.

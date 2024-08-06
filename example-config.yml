@@ -12,9 +12,12 @@ templier-host: "your-application:11000"
 # print-js-debug-logs enables Templiér debug logs in the browser.
 print-js-debug-logs: true
 
-# verbose enables verbose console logs when true.
-# This doesn't affect app server logs.
-verbose: true
+# log allows you to chose from different log levels:
+#  "": empty is same as erronly
+#  erronly: error logs only
+#  verbose: verbose logging of relevant events and timings
+#  debug: verbose debug logging
+log: erronly
 
 debounce:
   # debounce.templ defines how long to wait for more _templ.txt file changes

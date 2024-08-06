@@ -58,6 +58,11 @@ func (t *Tracker) GetCustomWatcher(index int) string {
 	return t.errMsgBuffer[IndexOffsetCustomWatcher+index]
 }
 
+// NumListeners returns the number of currently active listeners.
+func (s *Tracker) NumListeners() int {
+	return s.broadcaster.Len()
+}
+
 // AddListener adds a listener channel.
 // c will be written struct{}{} to when a state change happens.
 func (s *Tracker) AddListener(c chan<- struct{}) {

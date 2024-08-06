@@ -15,6 +15,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
 	"github.com/romshark/templier/internal/filereg"
+	"github.com/romshark/templier/internal/log"
 )
 
 // Watcher is a recursive file watcher.
@@ -276,6 +277,7 @@ func (w *Watcher) Add(dir string) error {
 }
 
 func (w *Watcher) add(dir string) error {
+	log.Debugf("watching directory: %q", dir)
 	err := forEachDir(dir, func(dir string) error {
 		if err := w.isExluded(dir); err != nil {
 			if err == errExcluded {
@@ -311,6 +313,7 @@ func (w *Watcher) remove(dir string) error {
 	if _, ok := w.watchedDirs[dir]; !ok {
 		return nil
 	}
+	log.Debugf("unwatch directory: %q", dir)
 	delete(w.watchedDirs, dir)
 	if err := w.removeWatcher(dir); err != nil {
 		return err

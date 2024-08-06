@@ -200,7 +200,13 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 		s.stateTracker.RemoveListener(notifyStateChange)
 		s.reload.RemoveListener(notifyReload)
 		cancel()
+		log.Debugf("websockets: disconnect (%p); %d active listener(s)",
+			c, s.stateTracker.NumListeners())
 	}()
+
+	log.Debugf(
+		"websockets: upgrade connection (%p): %q; %d active listener(s)",
+		c, r.URL.String(), s.stateTracker.NumListeners())
 
 	go func() {
 		defer cancel()
@@ -216,10 +222,12 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-notifyStateChange:
+			log.Debugf("websockets: notify state change (%p)", c)
 			if !writeWSMsg(c, bytesMsgReload) {
 				return // Disconnect
 			}
 		case <-notifyReload:
+			log.Debugf("websockets: notify reload (%p)", c)
 			if !writeWSMsg(c, bytesMsgReload) {
 				return // Disconnect
 			}

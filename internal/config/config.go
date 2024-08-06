@@ -28,9 +28,12 @@ type Config struct {
 
 	App ConfigApp `yaml:"app"`
 
-	// Verbose enables verbose console logs when true.
-	// Verbose doesn't affect app server logs.
-	Verbose bool `yaml:"verbose"`
+	// Log accepts either of:
+	//  - "": empty string is the same as "erronly"
+	//  - "erronly": error logs only.
+	//  - "verbose": verbose logging of relevant events.
+	//  - "debug": verbose debug logging.
+	Log Log `yaml:"log"`
 
 	// Debounce is the file watcher debounce duration.
 	Debounce struct {
@@ -150,6 +153,24 @@ func (w ConfigCustomWatcher) Validate() error {
 	return nil
 }
 
+type Log log.LogLevel
+
+func (l *Log) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "", "erronly":
+		*l = Log(log.LogLevelErrOnly)
+	case "verbose":
+		*l = Log(log.LogLevelVerbose)
+	case "debug":
+		*l = Log(log.LogLevelDebug)
+	default:
+		return fmt.Errorf(`invalid log option %q, `+
+			`use either of: ["" (same as erronly), "erronly", "verbose", "debug"]`,
+			string(text))
+	}
+	return nil
+}
+
 type Requires action.Type
 
 func (r *Requires) UnmarshalText(text []byte) error {
@@ -230,6 +251,8 @@ func MustParse(version string) *Config {
 	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
 	flag.Parse()
 
+	log.Debugf("reading config file: %q", fConfigPath)
+
 	if fVersion {
 		PrintVersionInfoAndExit(version)
 	}
@@ -264,11 +287,13 @@ func MustParse(version string) *Config {
 		log.Fatalf("getting working dir: %v", err)
 	}
 	config.serverOutPath = path.Join(os.TempDir(), workingDir)
+	log.Debugf("set server output path: %q", config.serverOutPath)
 
 	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
 	if err != nil {
 		log.Fatalf("getting absolute path for app.dir-src-root: %v", err)
 	}
+	log.Debugf("set source directory absolute path: %q", config.App.dirSrcRootAbsolute)
 	return &config
 }
 

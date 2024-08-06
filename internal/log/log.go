@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	lock    sync.Mutex
-	out     io.Writer
-	verbose atomic.Bool
+	lock  sync.Mutex
+	out   io.Writer
+	level atomic.Int32
 
 	fBlueUnderline = color.New(color.FgBlue, color.Underline)
 	fGreen         = color.New(color.FgGreen, color.Bold)
@@ -27,16 +27,33 @@ func init() {
 	out = os.Stdout
 }
 
-func SetVerbose(enable bool) { verbose.Store(enable) }
+type LogLevel int32
+
+const (
+	LogLevelErrOnly LogLevel = 0
+	LogLevelVerbose LogLevel = 1
+	LogLevelDebug   LogLevel = 2
+)
+
+const TimeFormat = "3:04:05.000 PM"
+
+func SetLogLevel(l LogLevel) { level.Store(int32(l)) }
+
+func Level() LogLevel { return LogLevel(level.Load()) }
 
 // TemplierStarted prints the Templiér started log to console.
 func TemplierStarted(baseURL string) {
-	if !verbose.Load() {
+	if Level() < LogLevelVerbose {
 		return
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 Templiér ")
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " INFO: ")
+	}
+	fmt.Fprint(out, "Templiér ")
 	fGreen.Fprint(out, "started")
 	fmt.Fprint(out, " on ")
 	fBlueUnderline.Fprintln(out, baseURL)
@@ -44,36 +61,64 @@ func TemplierStarted(baseURL string) {
 
 // TemplierRestartingServer prints the server restart trigger log to console.
 func TemplierRestartingServer(cmdServerPath string) {
-	if !verbose.Load() {
+	if Level() < LogLevelVerbose {
 		return
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 restarting ")
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " INFO: ")
+	}
+	fmt.Fprint(out, "restarting ")
 	fGreen.Fprintln(out, cmdServerPath)
 }
 
 // TemplierFileChange prints a file change log to console.
 func TemplierFileChange(e fsnotify.Event) {
-	if !verbose.Load() {
+	if Level() < LogLevelVerbose {
 		return
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 file ")
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " INFO: ")
+	}
+	fmt.Fprint(out, "file ")
 	fmt.Fprint(out, fileOpStr(e.Op))
 	fmt.Fprint(out, ": ")
 	fBlueUnderline.Fprintln(out, e.Name)
 }
 
-// Infof prints an info line to console.
-func Infof(f string, v ...any) {
-	if !verbose.Load() {
+// Debugf prints an info line to console.
+func Debugf(f string, v ...any) {
+	if Level() < LogLevelDebug {
 		return
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖: ")
+	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, time.Now().Format(TimeFormat))
+	fmt.Fprint(out, " DEBUG: ")
+	fmt.Fprintf(out, f, v...)
+	fmt.Fprintln(out, "")
+}
+
+// Infof prints an info line to console.
+func Infof(f string, v ...any) {
+	if Level() < LogLevelVerbose {
+		return
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " INFO: ")
+	}
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 }
@@ -82,7 +127,12 @@ func Infof(f string, v ...any) {
 func Errorf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fRed.Fprint(out, "🤖 ERR: ")
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " ")
+	}
+	fRed.Fprint(out, "ERR: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 }
@@ -91,7 +141,12 @@ func Errorf(f string, v ...any) {
 func Fatalf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fRed.Fprint(out, "🤖 ERR: ")
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " ")
+	}
+	fRed.Fprint(out, "ERR: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 	os.Exit(1)
@@ -99,12 +154,16 @@ func Fatalf(f string, v ...any) {
 
 // Durf prints an error.
 func Durf(msg string, d time.Duration) {
-	if !verbose.Load() {
+	if Level() < LogLevelVerbose {
 		return
 	}
 	lock.Lock()
 	defer lock.Unlock()
 	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, ": ")
+	}
 	fmt.Fprint(out, msg)
 	fmt.Fprint(out, " (")
 	fRed.Fprintf(out, durStr(d))

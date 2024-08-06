@@ -23,8 +23,10 @@ func Run(
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = workDir
 
+	log.Debugf("running command: %s", c.String())
 	out, err = c.CombinedOutput()
 	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+		log.Debugf("running command (pid: %d): exited with exit code 1", c.Process.Pid)
 		return out, ErrExitCode1
 	} else if err != nil {
 		return nil, err
@@ -52,6 +54,7 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 		return fmt.Errorf("obtaining stdout pipe: %w", err)
 	}
 
+	log.Debugf("starting a-h/templ in the background: %s", cmd.String())
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting: %w", err)
 	}
@@ -62,6 +65,7 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			b := scanner.Bytes()
+			log.Debugf("templ: %s", string(b))
 			switch {
 			case bytes.HasPrefix(b, bytesPrefixErr):
 				st.Set(statetrack.IndexTempl, scanner.Text())
