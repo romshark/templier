@@ -74,6 +74,8 @@ custom-watchers:
     # include defines that this watcher will watch all JavaScript and JSX files.
     include: ["*.js", "*.jsx"]
 
+    exclude: # exclude is optional.
+
     # fail-on-error specifies that in case cmd returns error code 1 the output
     # of the execution should be displayed in the browser, just like
     # for example if the Go compiler fails to compile.
@@ -92,7 +94,7 @@ custom-watchers:
     #  - "reload" = reload all browser tabs.
     #  - "restart" = restart the server but don't rebuild it.
     #  - "rebuild" = re-lint, rebuild and restart the server.
-    requires: "reload"
+    requires: reload
 
   - name: "Restart on config change"
     # cmd specifies that no special command needs to be executed since this watcher
@@ -102,6 +104,10 @@ custom-watchers:
     # include specifies what kind of configuration files need to be watched.
     include: ["*.yaml", "*.yml", "*.toml"]
 
+    # exclude specifies what kind of configuration files, that would otherwise
+    # match `include` to explicitly exclude.
+    exclude: ["ignore-this.yaml"]
+
     # fail-on-error doesn't need to be specified when cmd is empty. Default is false.
     fail-on-error:
 
@@ -110,4 +116,4 @@ custom-watchers:
 
     # requires specifies that when a config file changes the server needs
     # to be restarted, but doesn't need to be rebuilt.
-    requires: "restart"
+    requires: restart

@@ -51,6 +51,7 @@ type customWatcher struct {
 	name      string
 	cmd       config.CmdStr
 	include   []glob.Glob
+	exclude   []glob.Glob
 	debounced func(func())
 	failOnErr bool
 	requires  action.Type
@@ -59,6 +60,11 @@ type customWatcher struct {
 func (c customWatcher) isFilePathIncluded(s string) bool {
 	for _, glob := range c.include {
 		if glob.Match(s) {
+			for _, glob := range c.exclude {
+				if glob.Match(s) {
+					return false
+				}
+			}
 			return true
 		}
 	}
@@ -106,18 +112,25 @@ func main() {
 	for i, w := range conf.CustomWatchers {
 		debouncer, debounced := debounce.NewSync(w.Debounce)
 		go debouncer(ctx)
-		globs := make([]glob.Glob, len(w.Include))
+
+		// The following globs have already been validated during config parsing.
+		// It's safe to assume compilation succeeds.
+		include := make([]glob.Glob, len(w.Include))
 		for i, pattern := range w.Include {
-			// These globs have already been validated during config parsing.
-			// It's safe to assume compilation succeeds.
-			globs[i] = glob.MustCompile(pattern)
+			include[i] = glob.MustCompile(pattern)
 		}
+		exclude := make([]glob.Glob, len(w.Exclude))
+		for i, pattern := range w.Exclude {
+			exclude[i] = glob.MustCompile(pattern)
+		}
+
 		customWatchers[i] = customWatcher{
 			name:      w.Name,
 			debounced: debounced,
 			cmd:       w.Cmd,
 			failOnErr: w.FailOnError,
-			include:   globs,
+			include:   include,
+			exclude:   exclude,
 			requires:  action.Type(w.Requires),
 		}
 	}

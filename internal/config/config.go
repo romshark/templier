@@ -104,6 +104,10 @@ type ConfigCustomWatcher struct {
 	// Include specifies glob expressions for what files to watch.
 	Include GlobList `yaml:"include"`
 
+	// Exclude specifies glob expressions for what files to ignore
+	// that would otherwise match `include`.
+	Exclude GlobList `yaml:"exclude"`
+
 	// Cmd specifies the command to run when an included file changed.
 	// Cmd will be executed in app.dir-work. This is optional and can be left empty
 	// since sometimes all you want to do is rebuild & restart or just restart
