@@ -212,7 +212,6 @@ func (w *Watcher) Ignore(globExpression string) error {
 		return err
 	}
 
-	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
@@ -243,7 +242,6 @@ func (w *Watcher) Ignore(globExpression string) error {
 // Unignore removes an ignore glob filter.
 // Noop if filter doesn't exist or the watcher is closed or not running.
 func (w *Watcher) Unignore(globExpression string) {
-	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	if w.state == stateClosed {
@@ -255,7 +253,6 @@ func (w *Watcher) Unignore(globExpression string) {
 // Add starts watching the directory and all of its subdirectories recursively.
 // Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Add(dir string) error {
-	w.runnerStart.Wait() // Wait for the runner to start
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	if w.state == stateClosed {

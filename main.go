@@ -176,22 +176,20 @@ func main() {
 		log.Fatalf("initializing file watcher: %v", err)
 	}
 
-	go func() {
-		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("running file watcher: %v", err)
-		}
-	}()
-
 	for _, expr := range conf.App.Exclude {
 		if err := watcher.Ignore(expr); err != nil {
 			log.Fatalf("adding ignore filter to watcher (%q): %v", expr, err)
 		}
 	}
-
 	if err := watcher.Add(conf.App.DirSrcRootAbsolute()); err != nil {
 		log.Fatalf("setting up file watcher for app.dir-src-root(%q): %v",
 			conf.App.DirSrcRootAbsolute(), err)
 	}
+	go func() {
+		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("running file watcher: %v", err)
+		}
+	}()
 
 	{
 		templierBaseURL := url.URL{
