@@ -16,6 +16,7 @@ func TestStateListener(t *testing.T) {
 	require.Zero(t, s.Get(statetrack.IndexTempl))
 	require.Zero(t, s.Get(statetrack.IndexGolangciLint))
 	require.Zero(t, s.Get(statetrack.IndexGo))
+	require.Zero(t, s.Get(statetrack.IndexExit))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -33,6 +34,7 @@ func TestStateListener(t *testing.T) {
 	s.Set(statetrack.IndexGo, "go failed")
 	s.Set(statetrack.IndexGolangciLint, "golangcilint failed")
 	s.Set(statetrack.IndexTempl, "templ failed")
+	s.Set(statetrack.IndexExit, "process exited with code 1")
 	s.Set(statetrack.IndexOffsetCustomWatcher+1, "custom watcher failed")
 
 	wg.Wait() // Wait for the listener goroutine to receive an update
@@ -42,6 +44,7 @@ func TestStateListener(t *testing.T) {
 	require.Equal(t, "templ failed", s.Get(statetrack.IndexTempl))
 	require.Equal(t, "golangcilint failed", s.Get(statetrack.IndexGolangciLint))
 	require.Equal(t, "go failed", s.Get(statetrack.IndexGo))
+	require.Equal(t, "process exited with code 1", s.Get(statetrack.IndexExit))
 }
 
 func TestStateReset(t *testing.T) {
@@ -51,6 +54,7 @@ func TestStateReset(t *testing.T) {
 	require.Zero(t, s.Get(statetrack.IndexTempl))
 	require.Zero(t, s.Get(statetrack.IndexGolangciLint))
 	require.Zero(t, s.Get(statetrack.IndexGo))
+	require.Zero(t, s.Get(statetrack.IndexExit))
 
 	s.Set(statetrack.IndexGo, "go failed")
 	s.Set(statetrack.IndexGolangciLint, "golangcilint failed")
@@ -61,6 +65,7 @@ func TestStateReset(t *testing.T) {
 	require.Zero(t, s.Get(statetrack.IndexTempl))
 	require.Zero(t, s.Get(statetrack.IndexGolangciLint))
 	require.Zero(t, s.Get(statetrack.IndexGo))
+	require.Zero(t, s.Get(statetrack.IndexExit))
 
 	require.Equal(t, -1, s.ErrIndex())
 }

@@ -179,6 +179,7 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 			http.StatusMethodNotAllowed)
 		return
 	}
+
 	c, err := s.webSocketUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Errorf("upgrading to websocket: %v", err)
@@ -189,14 +190,17 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 
 	notifyStateChange := make(chan struct{})
 	s.stateTracker.AddListener(notifyStateChange)
-	defer s.stateTracker.RemoveListener(notifyStateChange)
 
 	notifyReload := make(chan struct{})
 	s.reload.AddListener(notifyReload)
-	defer s.reload.RemoveListener(notifyReload)
 
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
+
+	defer func() {
+		s.stateTracker.RemoveListener(notifyStateChange)
+		s.reload.RemoveListener(notifyReload)
+		cancel()
+	}()
 
 	go func() {
 		defer cancel()
@@ -254,6 +258,9 @@ func (s *Server) newReports() []Report {
 	}
 	if m := s.stateTracker.Get(statetrack.IndexGo); m != "" {
 		report = append(report, Report{Subject: "go", Body: m})
+	}
+	if m := s.stateTracker.Get(statetrack.IndexExit); m != "" {
+		return []Report{{Subject: "process", Body: m}}
 	}
 	for i, w := range s.config.CustomWatchers {
 		if m := s.stateTracker.Get(statetrack.IndexOffsetCustomWatcher + i); m != "" {

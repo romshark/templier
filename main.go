@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	_ "embed"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -275,8 +277,14 @@ func runAppLauncher(
 		}
 
 		c := exec.Command(latestBinaryPath)
-		c.Args = conf.App.Flags
-		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		if conf.App.Flags != nil {
+			c.Args = conf.App.Flags
+		}
+
+		var bufOutputCombined bytes.Buffer
+
+		c.Stdout = io.MultiWriter(os.Stdout, &bufOutputCombined)
+		c.Stderr = io.MultiWriter(os.Stderr, &bufOutputCombined)
 		latestSrvCmd = c
 
 		log.TemplierRestartingServer(conf.App.DirCmd)
@@ -284,6 +292,23 @@ func runAppLauncher(
 		if err := c.Start(); err != nil {
 			log.Errorf("running %s: %v", conf.App.DirCmd, err)
 		}
+
+		var exitCode atomic.Int32
+		exitCode.Store(-1)
+		go func() {
+			err := c.Wait()
+			if err == nil {
+				return
+			}
+			if exitError, ok := err.(*exec.ExitError); ok {
+				// The program has exited with an exit code != 0
+				exitCode.Store(int32(exitError.ExitCode()))
+				return
+			}
+			// Some other error occurred
+			panic(err)
+		}()
+
 		const maxRetries = 100
 		for retry := 0; ; retry++ {
 			if ctx.Err() != nil {
@@ -306,6 +331,11 @@ func runAppLauncher(
 			_, err = healthCheckClient.Do(r)
 			if err == nil {
 				break // Server is ready to receive requests
+			}
+			if code := exitCode.Load(); code != -1 && code != 0 {
+				log.Errorf("health check: app server exited with exit code %d", code)
+				stateTracker.Set(statetrack.IndexExit, bufOutputCombined.String())
+				return
 			}
 			time.Sleep(ServerHealthPreflightWaitInterval)
 		}
@@ -509,7 +539,9 @@ func buildServer(
 		st.Set(statetrack.IndexGo, string(buf))
 		return
 	}
+	// Reset the process exit and go compiler errors
 	st.Set(statetrack.IndexGo, "")
+	st.Set(statetrack.IndexExit, "")
 	log.Durf("compiled cmd/server", time.Since(startBuilding))
 	return binaryPath
 }

@@ -10,7 +10,8 @@ const (
 	IndexTempl               = 0
 	IndexGolangciLint        = 1
 	IndexGo                  = 2
-	IndexOffsetCustomWatcher = 3
+	IndexExit                = 3
+	IndexOffsetCustomWatcher = 4
 )
 
 func (t *Tracker) ErrIndex() int {
@@ -29,7 +30,8 @@ type Tracker struct {
 	// index 0: templ errors
 	// index 1: golangci-lint errors
 	// index 2: go compiler errors
-	// index 3-end: custom watcher errors
+	// index 3: process exit code != 0
+	// index 4-end: custom watcher errors
 	errMsgBuffer []string
 	lock         sync.Mutex
 	broadcaster  *broadcaster.SignalBroadcaster
@@ -37,7 +39,7 @@ type Tracker struct {
 
 func NewTracker(numCustomWatchers int) *Tracker {
 	return &Tracker{
-		errMsgBuffer: make([]string, 3+numCustomWatchers),
+		errMsgBuffer: make([]string, IndexOffsetCustomWatcher+numCustomWatchers),
 		broadcaster:  broadcaster.NewSignalBroadcaster(),
 	}
 }
