@@ -260,22 +260,17 @@ func runAppLauncher(
 ) {
 	var latestSrvCmd *exec.Cmd
 	var latestBinaryPath string
+	var waitExit sync.WaitGroup
 
-	stopServer := func() (ok bool) {
+	stopServer := func() {
 		if latestSrvCmd == nil || latestSrvCmd.Process == nil {
-			return true
+			return
 		}
 		log.Debugf("stopping app server with pid %d", latestSrvCmd.Process.Pid)
 		if err := latestSrvCmd.Process.Signal(os.Interrupt); err != nil {
 			log.Errorf("sending interrupt signal to app server: %v", err)
-			return false
+			return
 		}
-		if _, err := latestSrvCmd.Process.Wait(); err != nil {
-			log.Errorf("waiting for app server (pid: %d) to terminate: %v",
-				latestSrvCmd.Process.Pid, err)
-			return false
-		}
-		return true
 	}
 
 	healthCheckClient := &http.Client{Transport: &http.Transport{
@@ -285,6 +280,7 @@ func runAppLauncher(
 	rerun := func() {
 		start := time.Now()
 		stopServer()
+		waitExit.Wait()
 
 		log.Durf("stopped server", time.Since(start))
 
@@ -314,7 +310,9 @@ func runAppLauncher(
 
 		var exitCode atomic.Int32
 		exitCode.Store(-1)
+		waitExit.Add(1)
 		go func() {
+			defer waitExit.Done()
 			err := c.Wait()
 			if err == nil {
 				return
