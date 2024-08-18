@@ -241,7 +241,7 @@ func runTemplierServer(
 		conf,
 	)
 	var err error
-	if conf.TLS != nil {
+	if conf.TLS.Cert != "" && conf.TLS.Key != "" {
 		err = http.ListenAndServeTLS(conf.TemplierHost,
 			conf.TLS.Cert, conf.TLS.Key, srv)
 	} else {
