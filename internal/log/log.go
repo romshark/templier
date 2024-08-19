@@ -166,7 +166,7 @@ func Durf(msg string, d time.Duration) {
 	}
 	fmt.Fprint(out, msg)
 	fmt.Fprint(out, " (")
-	fRed.Fprintf(out, durStr(d))
+	fRed.Fprintf(out, durStr(d)) // nolint: vet
 	fmt.Fprintln(out, ")")
 }
 
