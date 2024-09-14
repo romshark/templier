@@ -30,7 +30,7 @@ jobs:
 
       # Make sure templ generate was executed before commit
       - name: Generate templates
-        run: go run github.com/a-h/templ/cmd/templ generate
+        run: go run github.com/a-h/templ/cmd/templ@v0.2.778 generate
       - name: Check file changes after templ generate
         run: |
           git diff --exit-code
