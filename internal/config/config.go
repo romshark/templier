@@ -21,6 +21,8 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
+const Version = "0.6.2"
+
 var config Config
 
 type Config struct {
@@ -220,7 +222,7 @@ func (e GlobList) Validate() error {
 	return nil
 }
 
-func PrintVersionInfoAndExit(version string) {
+func PrintVersionInfoAndExit() {
 	defer os.Exit(0)
 
 	p, err := exec.LookPath(os.Args[0])
@@ -240,11 +242,11 @@ func PrintVersionInfoAndExit(version string) {
 		fmt.Printf("Reading build information: %v\n", err)
 	}
 
-	fmt.Printf("Templiér v%s\n\n", version)
+	fmt.Printf("Templiér v%s\n\n", Version)
 	fmt.Printf("%v\n", info)
 }
 
-func MustParse(version string) *Config {
+func MustParse() *Config {
 	var fVersion bool
 	var fConfigPath string
 	flag.BoolVar(&fVersion, "version", false, "show version")
@@ -254,7 +256,7 @@ func MustParse(version string) *Config {
 	log.Debugf("reading config file: %q", fConfigPath)
 
 	if fVersion {
-		PrintVersionInfoAndExit(version)
+		PrintVersionInfoAndExit()
 	}
 
 	// Set default config
