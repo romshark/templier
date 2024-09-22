@@ -73,7 +73,7 @@ func (c customWatcher) isFilePathIncluded(s string) bool {
 
 func main() {
 	conf := config.MustParse()
-	log.SetLogLevel(log.LogLevel(conf.Log))
+	log.SetLogLevel(log.LogLevel(conf.Log.Level))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -359,6 +359,9 @@ func runAppLauncher(
 			time.Sleep(ServerHealthPreflightWaitInterval)
 		}
 
+		if conf.Log.ClearOn == config.LogClearOnRestart {
+			log.ClearLogs()
+		}
 		log.Durf("restarted server", time.Since(start))
 
 		// Notify all clients to reload the page
@@ -398,6 +401,10 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 	if e.Op == fsnotify.Chmod {
 		log.Debugf("ignoring file operation (%s): %q", e.Op.String(), e.Name)
 		return nil // Ignore chmod events.
+	}
+
+	if h.conf.Log.ClearOn == config.LogClearOnFileChange {
+		log.ClearLogs()
 	}
 
 	relativeFileName, err := filepath.Rel(h.baseFilePath, e.Name)
@@ -530,7 +537,9 @@ func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.C
 		ctx, conf.App.DirWork, "golangci-lint", "run", conf.App.DirSrcRoot+"/...",
 	)
 	if errors.Is(err, cmdrun.ErrExitCode1) {
-		st.Set(statetrack.IndexGolangciLint, string(buf))
+		bufStr := string(buf)
+		log.Error(bufStr)
+		st.Set(statetrack.IndexGolangciLint, bufStr)
 		return
 	} else if err != nil {
 		log.Errorf("failed running golangci-lint: %v", err)
@@ -562,8 +571,9 @@ func buildServer(
 	)
 	buf, err := cmdrun.Run(ctx, conf.App.DirWork, "go", args...)
 	if err != nil {
-		log.Errorf("failed compiling cmd/server")
-		st.Set(statetrack.IndexGo, string(buf))
+		bufStr := string(buf)
+		log.Error(bufStr)
+		st.Set(statetrack.IndexGo, bufStr)
 		return
 	}
 	// Reset the process exit and go compiler errors

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,9 +21,22 @@ var (
 
 	fBlueUnderline = color.New(color.FgBlue, color.Underline)
 	fGreen         = color.New(color.FgGreen, color.Bold)
-	// fCyanUnderline = color.New(color.FgCyan, color.Underline)
-	fRed = color.New(color.FgHiRed, color.Bold)
+	fRed           = color.New(color.FgHiRed, color.Bold)
 )
+
+// ClearLogs clears the console.
+func ClearLogs() {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		_ = cmd.Run() // Ignore errors, we don't care if it fails.
+	case "windows":
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		_ = cmd.Run() // Ignore errors, we don't care if it fails.
+	}
+}
 
 func init() {
 	out = os.Stdout
@@ -124,6 +139,20 @@ func Infof(f string, v ...any) {
 }
 
 // Errorf prints an error line to console.
+func Error(msg string) {
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " ")
+	}
+	fRed.Fprint(out, "ERR: ")
+	fmt.Fprint(out, msg)
+	fmt.Fprintln(out, "")
+}
+
+// Errorf is similar to Error but with formatting.
 func Errorf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()

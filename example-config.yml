@@ -9,15 +9,22 @@ lint: true
 # templier-host defines what host address to run Templiér on.
 templier-host: "your-application:11000"
 
-# print-js-debug-logs enables Templiér debug logs in the browser.
-print-js-debug-logs: true
+log:
+  # level allows you to chose from different log levels:
+  #  "" (empty): same as erronly.
+  #  erronly: error logs only.
+  #  verbose: verbose logging of relevant events and timings.
+  #  debug: verbose debug logging.
+  level: erronly
 
-# log allows you to chose from different log levels:
-#  "": empty is same as erronly
-#  erronly: error logs only
-#  verbose: verbose logging of relevant events and timings
-#  debug: verbose debug logging
-log: erronly
+  # clear-on allows you to specify when, if at all, the console logs should be cleared:
+  #  "" (empty): disables console log clearing.
+  #  "restart": clears console logs only on app server restart.
+  #  "file-change": clears console logs on every file change.
+  clear-on:
+
+  # print-js-debug-logs enables Templiér debug logs in the browser.
+  print-js-debug-logs: true
 
 debounce:
   # debounce.templ defines how long to wait for more _templ.txt file changes

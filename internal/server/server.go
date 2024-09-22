@@ -58,7 +58,7 @@ func New(
 	config *config.Config,
 ) *Server {
 	var jsInjectionBuf bytes.Buffer
-	err := jsInjection(config.PrintJSDebugLogs, PathProxyEvents).Render(
+	err := jsInjection(config.Log.PrintJSDebugLogs, PathProxyEvents).Render(
 		context.Background(), &jsInjectionBuf,
 	)
 	if err != nil {
@@ -286,7 +286,7 @@ func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
 		title = strconv.Itoa(len(reports)) + " errors"
 	}
 
-	comp := errpage(title, reports, s.config.PrintJSDebugLogs, PathProxyEvents)
+	comp := errpage(title, reports, s.config.Log.PrintJSDebugLogs, PathProxyEvents)
 	if err := comp.Render(r.Context(), w); err != nil {
 		panic(fmt.Errorf("rendering errpage: %w", err))
 	}

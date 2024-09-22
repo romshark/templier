@@ -21,7 +21,7 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.6.2"
+const Version = "0.7.0"
 
 var config Config
 
@@ -30,12 +30,8 @@ type Config struct {
 
 	App ConfigApp `yaml:"app"`
 
-	// Log accepts either of:
-	//  - "": empty string is the same as "erronly"
-	//  - "erronly": error logs only.
-	//  - "verbose": verbose logging of relevant events.
-	//  - "debug": verbose debug logging.
-	Log Log `yaml:"log"`
+	// Log specifies logging related configurations.
+	Log ConfigLog `yaml:"log"`
 
 	// Debounce is the file watcher debounce duration.
 	Debounce struct {
@@ -57,9 +53,6 @@ type Config struct {
 	// TemplierHost is the Templiér HTTP server host address.
 	// Example: "127.0.0.1:9999".
 	TemplierHost string `yaml:"templier-host" validate:"url,required"`
-
-	// PrintJSDebugLogs enables Templiér injected javascript debug logs in the browser.
-	PrintJSDebugLogs bool `yaml:"print-js-debug-logs"`
 
 	// TLS is optional, will serve HTTP instead of HTTPS if nil.
 	TLS *struct {
@@ -101,6 +94,25 @@ type ConfigApp struct {
 }
 
 func (c *ConfigApp) DirSrcRootAbsolute() string { return c.dirSrcRootAbsolute }
+
+type ConfigLog struct {
+	// Level accepts either of:
+	//  - "": empty string is the same as "erronly"
+	//  - "erronly": error logs only.
+	//  - "verbose": verbose logging of relevant events.
+	//  - "debug": verbose debug logging.
+	Level LogLevel `yaml:"level"`
+
+	// ClearOn accepts either of:
+	//  - "": disables console log clearing.
+	//  - "restart": clears console logs only on app server restart.
+	//  - "file-change": clears console logs on every file change.
+	ClearOn LogClear `yaml:"clear-on"`
+
+	// PrintJSDebugLogs enables Templiér injected javascript
+	// debug logs in the browser.
+	PrintJSDebugLogs bool `yaml:"print-js-debug-logs"`
+}
 
 type ConfigCustomWatcher struct {
 	// Name is the display name for the custom watcher.
@@ -155,19 +167,43 @@ func (w ConfigCustomWatcher) Validate() error {
 	return nil
 }
 
-type Log log.LogLevel
+type LogLevel log.LogLevel
 
-func (l *Log) UnmarshalText(text []byte) error {
+func (l *LogLevel) UnmarshalText(text []byte) error {
 	switch string(text) {
 	case "", "erronly":
-		*l = Log(log.LogLevelErrOnly)
+		*l = LogLevel(log.LogLevelErrOnly)
 	case "verbose":
-		*l = Log(log.LogLevelVerbose)
+		*l = LogLevel(log.LogLevelVerbose)
 	case "debug":
-		*l = Log(log.LogLevelDebug)
+		*l = LogLevel(log.LogLevelDebug)
 	default:
 		return fmt.Errorf(`invalid log option %q, `+
 			`use either of: ["" (same as erronly), "erronly", "verbose", "debug"]`,
+			string(text))
+	}
+	return nil
+}
+
+type LogClear int8
+
+const (
+	LogClearDisabled LogClear = iota
+	LogClearOnRestart
+	LogClearOnFileChange
+)
+
+func (l *LogClear) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "":
+		*l = LogClearDisabled
+	case "restart":
+		*l = LogClearOnRestart
+	case "file-change":
+		*l = LogClearOnFileChange
+	default:
+		return fmt.Errorf(`invalid clear-on option %q, `+
+			`use either of: ["" (disable), "restart", "file-change"]`,
 			string(text))
 	}
 	return nil
@@ -267,7 +303,9 @@ func MustParse() *Config {
 	config.Debounce.Go = 50 * time.Millisecond
 	config.ProxyTimeout = 2 * time.Second
 	config.Lint = true
-	config.PrintJSDebugLogs = false
+	config.Log.Level = LogLevel(log.LogLevelErrOnly)
+	config.Log.ClearOn = LogClearDisabled
+	config.Log.PrintJSDebugLogs = false
 	config.TLS = nil
 
 	if fConfigPath != "" {
