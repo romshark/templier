@@ -352,6 +352,10 @@ func (w *Watcher) isExluded(path string) error {
 		return fmt.Errorf("determining relative path (base: %q; path: %q): %w",
 			w.baseDir, path, err)
 	}
+	if relPath == "." {
+		// The working directory shall never be excluded based on globs.
+		return nil
+	}
 	for _, x := range w.exclude {
 		if x.Match(relPath) {
 			return errExcluded
