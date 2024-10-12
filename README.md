@@ -15,7 +15,7 @@ Templiér is a Go web frontend development environment for
 - Shuts your server down gracefully.
 - Displays application server console logs in the terminal.
 - Supports templ's debug mode for fast live reload.
-- Avoids reloading when files didn't change by keeping track of hashsums.
+- Avoids reloading when files didn't change by keeping track of checksums.
 - Allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
   - example: [Bundle JavaScript](#custom-watcher-example-javascript-bundler)
   - example: [Rebuild CSS](#custom-watcher-example-tailwindcss-and-postcss)
