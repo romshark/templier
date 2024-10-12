@@ -287,7 +287,7 @@ func runAppLauncher(
 
 		c := exec.Command(latestBinaryPath)
 		if conf.App.Flags != nil {
-			c.Args = conf.App.Flags
+			c.Args = append(c.Args, conf.App.Flags...)
 		}
 
 		var bufOutputCombined bytes.Buffer
