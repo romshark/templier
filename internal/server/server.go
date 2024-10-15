@@ -272,7 +272,7 @@ func (s *Server) newReports() []Report {
 	}
 	for i, w := range s.config.CustomWatchers {
 		if m := s.stateTracker.Get(statetrack.IndexOffsetCustomWatcher + i); m != "" {
-			report = append(report, Report{Subject: w.Name, Body: m})
+			report = append(report, Report{Subject: string(w.Name), Body: m})
 		}
 	}
 	return report

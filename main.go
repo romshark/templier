@@ -75,6 +75,31 @@ func main() {
 	conf := config.MustParse()
 	log.SetLogLevel(log.LogLevel(conf.Log.Level))
 
+	// Make sure required cmds are available.
+	if _, err := exec.LookPath("templ"); err != nil {
+		log.FatalCmdNotAvailable(
+			"templ", "https://templ.guide/quick-start/installation",
+		)
+	}
+	if conf.Lint {
+		if _, err := exec.LookPath("golangci-lint"); err != nil {
+			log.FatalCmdNotAvailable(
+				"golangci-lint",
+				"https://github.com/golangci/golangci-lint"+
+					"?tab=readme-ov-file#install-golangci-lint",
+			)
+		}
+	}
+	for _, w := range conf.CustomWatchers {
+		if w.Cmd == "" {
+			continue
+		}
+		cmd := w.Cmd.Cmd()
+		if _, err := exec.LookPath(cmd); err != nil {
+			log.FatalCustomWatcherCmdNotAvailable(cmd, string(w.Name))
+		}
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -122,7 +147,7 @@ func main() {
 		}
 
 		customWatchers[i] = customWatcher{
-			name:      w.Name,
+			name:      string(w.Name),
 			debounced: debounced,
 			cmd:       w.Cmd,
 			failOnErr: w.FailOnError,

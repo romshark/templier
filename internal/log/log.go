@@ -20,6 +20,7 @@ var (
 	level atomic.Int32
 
 	fBlueUnderline = color.New(color.FgBlue, color.Underline)
+	fBlue          = color.New(color.FgBlue)
 	fGreen         = color.New(color.FgGreen, color.Bold)
 	fRed           = color.New(color.FgHiRed, color.Bold)
 )
@@ -164,6 +165,48 @@ func Errorf(f string, v ...any) {
 	fRed.Fprint(out, "ERR: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
+}
+
+// FatalCmdNotAvailable prints an error line to console about
+// a cmd that's required for Templiér to run not being available
+// and exits process with error code 1.
+func FatalCmdNotAvailable(cmd, helpURL string) {
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " ")
+	}
+	fRed.Fprint(out, "ERR: ")
+	fmt.Fprint(out, "it appears ")
+	fGreen.Fprint(out, cmd)
+	fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n See:")
+	fBlueUnderline.Fprint(out, helpURL)
+	fmt.Fprintln(out, "")
+	os.Exit(1)
+}
+
+// FatalCustomWatcherCmdNotAvailable prints an error line to console about
+// a cmd that's required for a custom watcher to run not being available
+// and exits process with error code 1.
+func FatalCustomWatcherCmdNotAvailable(cmd, customWatcherName string) {
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, "🤖 ")
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fmt.Fprint(out, " ")
+	}
+	fRed.Fprint(out, "ERR: ")
+	fmt.Fprint(out, "it appears ")
+	fGreen.Fprint(out, cmd)
+	fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n")
+	fmt.Fprint(out, "This command is required by custom watcher ")
+	fBlue.Fprint(out, customWatcherName)
+	fmt.Fprintln(out, ".")
+	fmt.Fprintln(out, "")
+	os.Exit(1)
 }
 
 // Fatalf prints an error line to console and exits process with error code 1.

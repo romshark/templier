@@ -116,7 +116,7 @@ type ConfigLog struct {
 
 type ConfigCustomWatcher struct {
 	// Name is the display name for the custom watcher.
-	Name string `yaml:"name"`
+	Name TrimmedString `yaml:"name"`
 
 	// Include specifies glob expressions for what files to watch.
 	Include GlobList `yaml:"include"`
@@ -155,15 +155,23 @@ type ConfigCustomWatcher struct {
 
 func (w ConfigCustomWatcher) Validate() error {
 	if w.Name == "" {
-		w.Name = string(w.Cmd) // Use cmd as name if no name was provided.
-		if w.Name == "" {
-			return errors.New("cmd and name cannot both be empty")
-		}
+		return errors.New("custom watcher has no name")
 	}
 	if w.Requires == Requires(action.ActionNone) && w.Cmd == "" {
 		return fmt.Errorf("custom watcher %q requires no action, hence "+
 			" cmd must not be empty", w.Name)
 	}
+	return nil
+}
+
+// TrimmedString removes all leading and trailing white space,
+// as defined by Unicode, when parsing from text as TextUnmarshaler.
+type TrimmedString string
+
+var _ encoding.TextUnmarshaler = new(TrimmedString)
+
+func (t *TrimmedString) UnmarshalText(text []byte) error {
+	*t = TrimmedString(bytes.TrimSpace(text))
 	return nil
 }
 
@@ -234,6 +242,14 @@ type CmdStr string
 func (c *CmdStr) UnmarshalText(t []byte) error {
 	*c = CmdStr(bytes.Trim(t, " \t\n\r"))
 	return nil
+}
+
+// Cmd returns only the command without arguments.
+func (c CmdStr) Cmd() string {
+	if c == "" {
+		return ""
+	}
+	return strings.Fields(string(c))[0]
 }
 
 type URL struct{ URL *url.URL }
