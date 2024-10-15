@@ -40,6 +40,8 @@ Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/m
 templier --config ./templier.yml
 ```
 
+ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the directory its running in without the explicit `--config` flag.
+
 ## How is Templiér different from templ's own watch mode?
 
 As you may already know, templ supports [live reload](https://templ.guide/commands-and-tools/live-reload)
