@@ -22,7 +22,7 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.7.4"
+const Version = "0.7.5"
 
 var config Config
 
@@ -303,7 +303,7 @@ func MustParse() *Config {
 	var fVersion bool
 	var fConfigPath string
 	flag.BoolVar(&fVersion, "version", false, "show version")
-	flag.StringVar(&fConfigPath, "config", "./templier.yml", "config file path")
+	flag.StringVar(&fConfigPath, "config", "", "config file path")
 	flag.Parse()
 
 	log.Debugf("reading config file: %q", fConfigPath)
@@ -312,7 +312,7 @@ func MustParse() *Config {
 		PrintVersionInfoAndExit()
 	}
 
-	// Set default config
+	// Set default config.
 	config.App.DirSrcRoot = "./"
 	config.App.DirCmd = "./"
 	config.App.DirWork = "./"
@@ -325,11 +325,19 @@ func MustParse() *Config {
 	config.Log.PrintJSDebugLogs = false
 	config.TLS = nil
 
-	if fConfigPath != "" {
-		err := yamagiconf.LoadFile(fConfigPath, &config)
-		if err != nil {
-			log.Fatalf("reading config file: %v", err)
+	if fConfigPath == "" {
+		// Try to detect config automatically.
+		if _, err := os.Stat("templier.yml"); err == nil {
+			fConfigPath = "templier.yml"
+		} else if _, err := os.Stat("templier.yaml"); err == nil {
+			fConfigPath = "templier.yaml"
+		} else {
+			log.Fatalf("couldn't find config file: templier.yml")
 		}
+	}
+	err := yamagiconf.LoadFile(fConfigPath, &config)
+	if err != nil {
+		log.Fatalf("reading config file: %v", err)
 	}
 
 	// Set default watch debounce
