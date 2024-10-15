@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/romshark/templier/internal/debounce"
+
 	"github.com/stretchr/testify/require"
 )
 

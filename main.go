@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gobwas/glob"
 	"github.com/romshark/templier/internal/action"
 	"github.com/romshark/templier/internal/broadcaster"
 	"github.com/romshark/templier/internal/cmdrun"
@@ -33,6 +32,7 @@ import (
 	"github.com/romshark/templier/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gobwas/glob"
 )
 
 const ServerHealthPreflightWaitInterval = 100 * time.Millisecond

@@ -14,12 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andybalholm/brotli"
-	"github.com/gorilla/websocket"
 	"github.com/romshark/templier/internal/broadcaster"
 	"github.com/romshark/templier/internal/config"
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/statetrack"
+
+	"github.com/andybalholm/brotli"
+	"github.com/gorilla/websocket"
 )
 
 const (

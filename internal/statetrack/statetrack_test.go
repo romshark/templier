@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/romshark/templier/internal/statetrack"
+
 	"github.com/stretchr/testify/require"
 )
 

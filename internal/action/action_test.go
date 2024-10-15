@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/romshark/templier/internal/action"
+
 	"github.com/stretchr/testify/require"
 )
 

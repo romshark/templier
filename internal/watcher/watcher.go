@@ -12,10 +12,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fsnotify/fsnotify"
-	"github.com/gobwas/glob"
 	"github.com/romshark/templier/internal/filereg"
 	"github.com/romshark/templier/internal/log"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/gobwas/glob"
 )
 
 // Watcher is a recursive file watcher.

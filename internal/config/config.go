@@ -15,9 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gobwas/glob"
 	"github.com/romshark/templier/internal/action"
 	"github.com/romshark/templier/internal/log"
+
+	"github.com/gobwas/glob"
 	"github.com/romshark/yamagiconf"
 )
 

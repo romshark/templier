@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/romshark/templier/internal/broadcaster"
+
 	"github.com/stretchr/testify/require"
 )
 
