@@ -78,55 +78,64 @@ func TestWatcher(t *testing.T) {
 	})
 
 	// Event 0
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newfile"),
 	})
 	// Event 1
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newdir"),
 	})
 	// Event 2
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newdir", "subdir"),
 	})
 	// Event 3
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newdir", "subdir", "subfile"),
 	})
 	// Event 4
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newdir", "subdir", "subfile2"),
 	})
 	// Event 5
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "existing-subdir", "subfile3"),
 	})
 	// Event 6
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Remove,
 		Name: filepath.Join(base, "existing-subdir", "subfile3"),
 	})
 	// Event 7
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Remove,
 		Name: filepath.Join(base, "existing-subdir"),
 	})
 	// Event 8
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Rename,
 		Name: filepath.Join(base, "newdir"),
 	})
 	// Event 9
-	require.Contains(t, events, fsnotify.Event{
+	eventsMustContain(t, events, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, "newname"),
 	})
+}
+
+func eventsMustContain(t *testing.T, set []fsnotify.Event, contains fsnotify.Event) {
+	for _, e := range set {
+		if e.Op == contains.Op && e.Name == contains.Name {
+			return
+		}
+	}
+	t.Errorf("event set %#v doesn't contain event %#v", set, contains)
 }
 
 func TestWatcherRunCancelContext(t *testing.T) {
