@@ -39,6 +39,13 @@ func Sh(ctx context.Context, workDir string, sh string) (out []byte, err error) 
 	return Run(ctx, workDir, "sh", "-c", sh)
 }
 
+// RunTemplFmt runs `templ fmt <path>`.
+func RunTemplFmt(ctx context.Context, workDir string, path string) error {
+	cmd := exec.Command("templ", "fmt", "-fail", path)
+	cmd.Dir = workDir
+	return cmd.Run()
+}
+
 // RunTemplWatch starts `templ generate --log-level debug --watch` and reads its
 // stdout pipe for failure and success logs updating the state accordingly.
 // When ctx is canceled the interrupt signal is sent to the watch process

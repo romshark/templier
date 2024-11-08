@@ -129,6 +129,54 @@ func TestWatcher(t *testing.T) {
 	})
 }
 
+// TestTemplTempFiles tests the templ temp file scenario.
+// When `templ fmt` is executed it creates a temporary formatted file
+// then replaces the original file with the temp files.
+// The watcher must ignore the temporary files in this scenario.
+func TestTemplTempFiles(t *testing.T) {
+	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	w := runNewWatcher(t, base, notifications)
+
+	require.NoError(t, w.Ignore("*.templ[0-9]*"))
+	require.NoError(t, w.Add(base))
+	ExpectWatched(t, w, []string{base})
+
+	events := make([]fsnotify.Event, 3)
+
+	// After every operation, wait for fsnotify to trigger,
+	// otherwise events might get lost.
+
+	MustCreateFile(t, base, "test.templ")
+	events[0] = <-notifications
+
+	// This file should be ignored.
+	MustCreateFile(t, base, "test.templ123456")
+
+	MustRemove(t, base, "test.templ")
+	events[1] = <-notifications
+
+	MustRename(t,
+		filepath.Join(base, "test.templ123456"),
+		filepath.Join(base, "test.templ"))
+	events[2] = <-notifications
+
+	// Event 0
+	eventsMustContain(t, events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "test.templ"),
+	})
+	// Event 1
+	eventsMustContain(t, events, fsnotify.Event{
+		Op:   fsnotify.Remove,
+		Name: filepath.Join(base, "test.templ"),
+	})
+	// Event 2
+	eventsMustContain(t, events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "test.templ"),
+	})
+}
+
 func eventsMustContain(t *testing.T, set []fsnotify.Event, contains fsnotify.Event) {
 	for _, e := range set {
 		if e.Op == contains.Op && e.Name == contains.Name {

@@ -22,7 +22,7 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.7.6"
+const Version = "0.8.0"
 
 var config Config
 
@@ -50,6 +50,9 @@ type Config struct {
 
 	// Lint runs golangci-lint before building if enabled.
 	Lint bool `yaml:"lint"`
+
+	// Format enables running `templ fmt` on `.templ` file changes.
+	Format bool `yaml:"format"`
 
 	// TemplierHost is the Templiér HTTP server host address.
 	// Example: "127.0.0.1:9999".
@@ -320,6 +323,7 @@ func MustParse() *Config {
 	config.Debounce.Go = 50 * time.Millisecond
 	config.ProxyTimeout = 2 * time.Second
 	config.Lint = true
+	config.Format = true
 	config.Log.Level = LogLevel(log.LogLevelErrOnly)
 	config.Log.ClearOn = LogClearDisabled
 	config.Log.PrintJSDebugLogs = false

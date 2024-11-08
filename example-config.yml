@@ -6,6 +6,9 @@ proxy-timeout: 10s
 # lint enables golangci-lint when true.
 lint: true
 
+# format enables automatic .templ file formatting when true.
+format: true
+
 # templier-host defines what host address to run Templiér on.
 templier-host: "your-application:11000"
 
