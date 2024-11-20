@@ -2,7 +2,12 @@
     <img src="https://goreportcard.com/badge/github.com/romshark/templier" alt="GoReportCard">
 </a>
 
-# Templiér
+<br>
+<br>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/romshark/templier/5c68f5b74984b6a2c6aec66912f6852819acbf9e/logo_white.svg">
+  <img src="https://raw.githubusercontent.com/romshark/templier/5c68f5b74984b6a2c6aec66912f6852819acbf9e/logo_color.svg" alt="Logo" width="400">
+</picture>
 
 Templiér is a Go web frontend development environment for
 [Templ](https://github.com/a-h/templ)
