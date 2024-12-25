@@ -29,7 +29,7 @@ const (
 
 	// PathProxyEvents defines the path for templier proxy websocket events endpoint.
 	// This path is very unlikely to collide with any path used by the app server.
-	PathProxyEvents = "/_templiér/events"
+	PathProxyEvents = "/_templier/events"
 
 	ReverseProxyRetries         = 20
 	ReverseProxyInitialDelay    = 100 * time.Millisecond
