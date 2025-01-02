@@ -22,7 +22,7 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.8.0"
+const Version = "0.8.1"
 
 var config Config
 

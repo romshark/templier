@@ -611,9 +611,13 @@ func buildServer(
 	filesToBeDeletedBeforeExit.Store(binaryPath)
 
 	args := append(
-		[]string{"build", "-o", binaryPath, conf.App.DirCmd},
+		[]string{"build", "-o", binaryPath},
 		conf.App.GoFlags...,
 	)
+	// Path to the main package directory should be always last
+	// see: https://github.com/romshark/templier/issues/9
+	args = append(args, conf.App.DirCmd)
+
 	buf, err := cmdrun.Run(ctx, conf.App.DirWork, "go", args...)
 	if err != nil {
 		bufStr := string(buf)
