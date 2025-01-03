@@ -18,10 +18,14 @@ var ErrExitCode1 = errors.New("exit code 1")
 // Run runs an arbitrary command and returns (output, ErrExitCode1)
 // if it exits with error code 1, otherwise returns the original error.
 func Run(
-	ctx context.Context, workDir string, cmd string, args ...string,
+	ctx context.Context, workDir string, envVars []string, cmd string, args ...string,
 ) (out []byte, err error) {
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = workDir
+
+	if envVars != nil {
+		c.Env = append(os.Environ(), envVars...)
+	}
 
 	log.Debugf("running command: %s", c.String())
 	out, err = c.CombinedOutput()
@@ -36,7 +40,7 @@ func Run(
 
 // Sh runs an arbitrary shell script and behaves similar to Run.
 func Sh(ctx context.Context, workDir string, sh string) (out []byte, err error) {
-	return Run(ctx, workDir, "sh", "-c", sh)
+	return Run(ctx, workDir, nil, "sh", "-c", sh)
 }
 
 // RunTemplFmt runs `templ fmt <path>`.

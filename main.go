@@ -579,7 +579,8 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.Config) {
 	startLinting := time.Now()
 	buf, err := cmdrun.Run(
-		ctx, conf.App.DirWork, "golangci-lint", "run", conf.App.DirSrcRoot+"/...",
+		ctx, conf.App.DirWork, nil,
+		"golangci-lint", "run", conf.App.DirSrcRoot+"/...",
 	)
 	if errors.Is(err, cmdrun.ErrExitCode1) {
 		bufStr := string(buf)
@@ -610,11 +611,9 @@ func buildServer(
 	// Register the binary path to make sure it's defer-deleted
 	filesToBeDeletedBeforeExit.Store(binaryPath)
 
-	args := append(
-		[]string{"build", "-o", binaryPath, conf.App.DirCmd},
-		conf.App.GoFlags...,
-	)
-	buf, err := cmdrun.Run(ctx, conf.App.DirWork, "go", args...)
+	args := append([]string{"build"}, conf.CompilerFlags()...)
+	args = append(args, "-o", binaryPath, conf.App.DirCmd)
+	buf, err := cmdrun.Run(ctx, conf.App.DirWork, conf.CompilerEnv(), "go", args...)
 	if err != nil {
 		bufStr := string(buf)
 		log.Error(bufStr)

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,12 +23,15 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.8.0"
+const Version = "0.9.0"
 
 var config Config
 
 type Config struct {
-	serverOutPath string // Initialized from os.Getwd and os.TempDir
+	serverOutPath string `yaml:"-"` // Initialized from os.Getwd and os.TempDir
+
+	// Compiler defines optional Go compiler flags
+	Compiler *ConfigCompiler `yaml:"compiler"`
 
 	App ConfigApp `yaml:"app"`
 
@@ -74,7 +78,7 @@ type ConfigApp struct {
 	// DirSrcRoot is the source root directory for the application server.
 	DirSrcRoot string `yaml:"dir-src-root" validate:"dirpath,required"`
 
-	dirSrcRootAbsolute string // Initialized from DirSrcRoot
+	dirSrcRootAbsolute string `yaml:"-"` // Initialized from DirSrcRoot
 
 	// Exclude defines glob expressions to match files exluded from watching.
 	Exclude GlobList `yaml:"exclude"`
@@ -85,10 +89,6 @@ type ConfigApp struct {
 	// DirWork is the working directory to run the application server from.
 	DirWork string `yaml:"dir-work" validate:"dirpath,required"`
 
-	// GoFlags are the CLI arguments to be passed to the go compiler when
-	// compiling the application server.
-	GoFlags SpaceSeparatedList `yaml:"go-flags"`
-
 	// Flags are the CLI arguments to be passed to the application server.
 	Flags SpaceSeparatedList `yaml:"flags"`
 
@@ -98,6 +98,56 @@ type ConfigApp struct {
 }
 
 func (c *ConfigApp) DirSrcRootAbsolute() string { return c.dirSrcRootAbsolute }
+
+func (c *Config) CompilerFlags() []string {
+	if c.Compiler != nil {
+		return c.Compiler.flags
+	}
+	return nil
+}
+
+func (c *Config) CompilerEnv() []string {
+	if c.Compiler != nil {
+		return c.Compiler.env
+	}
+	return nil
+}
+
+type ConfigCompiler struct {
+	// Gcflags is the -gcflags compiler flags to be passed to the go
+	// compiler when compiling the application server.
+	Gcflags string `yaml:"gcflags"`
+
+	// Ldflags provides the -ldflags CLI argument to Go compiler
+	// to pass on each go tool link invocation.
+	Ldflags string `yaml:"ldflags"`
+
+	// Asmflags is equivalent to `-asmflags '[pattern=]arg list'`.
+	Asmflags string `yaml:"asmflags"`
+
+	// Tags lists additional build tags to consider satisfied during the build.
+	Tags []string `yaml:"tags"`
+
+	// Race sets `-race` when true.
+	Race bool `yaml:"race"`
+
+	// Trimpath sets `-trimpath` when true.
+	Trimpath bool `yaml:"trimpath"`
+
+	// Msan sets `-msan` when true.
+	Msan bool `yaml:"msan"`
+
+	// P sets the number of programs, such as build commands that can be run in
+	// parallel. The default is GOMAXPROCS, normally the number of CPUs available.
+	P uint32 `yaml:"p"`
+
+	// Env passes environment variables to the Go compiler.
+	Env map[string]string `yaml:"env"`
+
+	env []string `yaml:"-"` // Initialized from Env.
+
+	flags []string `yaml:"-"` // Initialized from all of the above.
+}
 
 type ConfigLog struct {
 	// Level accepts either of:
@@ -362,6 +412,36 @@ func MustParse() *Config {
 	if err != nil {
 		log.Fatalf("getting absolute path for app.dir-src-root: %v", err)
 	}
+
+	if c := config.Compiler; c != nil {
+		c.flags = []string{}
+		if c.Gcflags != "" {
+			c.flags = append(c.flags, "-gcflags", c.Gcflags)
+		}
+		if c.Tags != nil {
+			c.flags = append(c.flags, "-tags", strings.Join(c.Tags, ","))
+		}
+		if c.Ldflags != "" {
+			c.flags = append(c.flags, "-ldflags", c.Ldflags)
+		}
+		if c.Race {
+			c.flags = append(c.flags, "-race")
+		}
+		if c.Msan {
+			c.flags = append(c.flags, "-msan")
+		}
+		if c.Trimpath {
+			c.flags = append(c.flags, "-trimpath")
+		}
+		if c.P != 0 {
+			c.flags = append(c.flags, "-p", strconv.Itoa(int(c.P)))
+		}
+		c.env = make([]string, 0, len(c.Env))
+		for k, v := range c.Env {
+			c.env = append(c.env, k+"="+v)
+		}
+	}
+
 	log.Debugf("set source directory absolute path: %q", config.App.dirSrcRootAbsolute)
 	return &config
 }

@@ -46,6 +46,59 @@ tls:
   # tls.keys defines the TLS private key file path.
   key: ./your-application.key.pem
 
+# compiler defines the optional Go compiler arguments.
+# For more info use `go help build`.
+compiler:
+  # compiler.gcflags provides the -gcflags CLI argument to Go compiler when
+  # compiling the application server executable.
+  # example:
+  #
+  # gcflags: all=-N -l
+  #
+  # the example above is equivalent to calling:
+  #  go build -gcflags "all=-N -l"
+  gcflags:
+
+  # compiler.ldflags provides the -ldflags CLI argument to Go compiler
+  # to pass on each go tool link invocation.
+  # example:
+  #
+  # ldflags: -X main.version=1.0.0 -s -w
+  #
+  # the example above is equivalent to calling:
+  #  go build -ldflags="-X main.version=1.0.0 -s -w"
+  ldflags:
+
+  # compiler.asmflags is equivalent to `-asmflags '[pattern=]arg list'`.
+  asmflags:
+
+  # compiler.trimpath sets `-trimpath` when true.
+  trimpath:
+
+  # compiler.race sets `-race` when true.
+  race:
+
+  # compiler.tags lists additional build tags to
+  # consider satisfied during the build.
+  # example:
+  #
+  # tags: [debug,netgo]
+  #
+  # the example above is equivalent to calling:
+  # go build -tags=debug,netgo
+  tags:
+
+  # compiler.p sets the number of programs, such as build commands that can be run in
+  # parallel. The default is GOMAXPROCS, normally the number of CPUs available.
+  p:
+
+  # msan sets `-msan` when true.
+  msan:
+
+  # compiler.env passes environment variables to the Go compiler.
+  env:
+    CGO_ENABLED: 0
+
 app:
   # app.dir-src-root defines the path to the Go module source root directory.
   dir-src-root: ./
@@ -66,10 +119,6 @@ app:
 
   # app.host defines the host address the application server is running on.
   host: https://your-application:12000
-
-  # app.go-flags defines additional Go compiler CLI arguments to provide when
-  # compiling the application server executable.
-  go-flags:
 
   # app.flags defines the CLI arguments as a string provided
   # to the application server executable.

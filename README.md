@@ -197,8 +197,7 @@ Once Templiér is started, it runs `templ generate --watch` in the background an
 watching files in the `app.dir-src-root` directory.
 On start and on file change, it automatically builds your application server executable
 saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
-the main package is specified by the `app.dir-cmd` directory. Any custom Go compiler
-CLI arguments can be specified by `app.go-flags`. Once built, the application server
+the main package is specified by the `app.dir-cmd` directory. Custom Go compiler arguments can be specified in `compiler`. Once built, the application server
 executable is launched with `app.flags` CLI parameters and the working directory
 set to `app.dir-work`. When necessary, the application server process is shut down
 gracefully, rebuilt, linted and restarted.

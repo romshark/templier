@@ -1,6 +1,6 @@
 module github.com/romshark/templier
 
-go 1.23.3
+go 1.23.4
 
 require (
 	github.com/a-h/templ v0.2.793
@@ -15,7 +15,7 @@ require (
 )
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.0 // indirect
+	github.com/PuerkitoBio/goquery v1.10.1 // indirect
 	github.com/a-h/parse v0.0.0-20240121214402-3caf7543159a // indirect
 	github.com/a-h/protocol v0.0.0-20240821172110-e94e5c43897f // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
