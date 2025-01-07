@@ -192,14 +192,14 @@ Once Templiér is started, it runs `templ generate --watch` in the background an
 watching files in the `app.dir-src-root` directory.
 On start and on file change, it automatically builds your application server executable
 saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
-the main package is specified by the `app.dir-cmd` directory. Custom Go compiler arguments can be specified in `compiler`. Once built, the application server
+the main package is specified by the `app.dir-cmd` directory.
+Custom Go compiler arguments can be specified with `compiler`. Once built, the application server
 executable is launched with `app.flags` CLI parameters and the working directory
 set to `app.dir-work`. When necessary, the application server process is shut down
 gracefully, rebuilt, linted and restarted.
-
-Templiér ignores changes made to `.templ`, `_templ.go` and `_templ.txt` files and lets
-`templ generate --watch` do its debug mode magic allowing for lightning fast reloads
-when a templ template changed with no need to rebuild the server.
+On `.templ` file changes Templiér only tries to compile and lint the server code
+without refreshing the page.
+On `_templ.txt` file changes Templiér refreshes the page.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
 all requests to the application server process that it launched injecting Templiér
