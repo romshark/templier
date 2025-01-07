@@ -75,6 +75,10 @@ func main() {
 	conf := config.MustParse()
 	log.SetLogLevel(log.LogLevel(conf.Log.Level))
 
+	if err := checkTemplVersion(context.Background()); err != nil {
+		log.Fatalf("checking templ version: %v", err)
+	}
+
 	// Make sure required cmds are available.
 	if _, err := exec.LookPath("templ"); err != nil {
 		log.FatalCmdNotAvailable(
@@ -683,4 +687,18 @@ func lintAndBuildServer(
 	}()
 	wg.Wait() // Wait for build and lint to finish.
 	return newBinaryPath
+}
+
+func checkTemplVersion(ctx context.Context) error {
+	out, err := cmdrun.Run(ctx, "", nil, "templ", "version")
+	if err != nil {
+		return err
+	}
+	outStr := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(outStr, config.SupportedTemplVersion) {
+		log.WarnUnsupportedTemplVersion(
+			config.Version, config.SupportedTemplVersion, outStr,
+		)
+	}
+	return nil
 }

@@ -23,7 +23,10 @@ var (
 	fBlue          = color.New(color.FgBlue)
 	fGreen         = color.New(color.FgGreen, color.Bold)
 	fRed           = color.New(color.FgHiRed, color.Bold)
+	fYellow        = color.New(color.FgHiYellow, color.Bold)
 )
+
+const LinePrefix = "🤖 "
 
 // ClearLogs clears the console.
 func ClearLogs() {
@@ -64,7 +67,7 @@ func TemplierStarted(baseURL string) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " INFO: ")
@@ -82,7 +85,7 @@ func TemplierRestartingServer(cmdServerPath string) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " INFO: ")
@@ -98,7 +101,7 @@ func TemplierFileChange(e fsnotify.Event) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " INFO: ")
@@ -116,11 +119,30 @@ func Debugf(f string, v ...any) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	fmt.Fprint(out, time.Now().Format(TimeFormat))
 	fmt.Fprint(out, " DEBUG: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
+}
+
+// WarnUnsupportedTemplVersion prints a warning line to console
+// about the currently installed templ version not matching the templ version
+// that the installed version of Templier supports.
+func WarnUnsupportedTemplVersion(
+	templierVersion, supportedTemplVersion, currentTemplVersion string,
+) {
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, LinePrefix)
+	fYellow.Fprint(out, " WARNING: ")
+	fmt.Fprint(out, "Templier ")
+	fGreen.Fprintf(out, "v%s", templierVersion)
+	fmt.Fprint(out, " is optimized to work with templ ")
+	fGreen.Fprintf(out, "%s. ", supportedTemplVersion)
+	fmt.Fprint(out, "You're using templ ")
+	fGreen.Fprint(out, currentTemplVersion)
+	fmt.Fprintln(out, ". This can lead to unexpected behavior!")
 }
 
 // Infof prints an info line to console.
@@ -130,7 +152,7 @@ func Infof(f string, v ...any) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " INFO: ")
@@ -143,7 +165,7 @@ func Infof(f string, v ...any) {
 func Error(msg string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
@@ -157,7 +179,7 @@ func Error(msg string) {
 func Errorf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
@@ -173,7 +195,7 @@ func Errorf(f string, v ...any) {
 func FatalCmdNotAvailable(cmd, helpURL string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
@@ -193,7 +215,7 @@ func FatalCmdNotAvailable(cmd, helpURL string) {
 func FatalCustomWatcherCmdNotAvailable(cmd, customWatcherName string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
@@ -213,7 +235,7 @@ func FatalCustomWatcherCmdNotAvailable(cmd, customWatcherName string) {
 func Fatalf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
@@ -231,7 +253,7 @@ func Durf(msg string, d time.Duration) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, "🤖 ")
+	fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, ": ")
