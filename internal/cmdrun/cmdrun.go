@@ -78,6 +78,8 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 			b := scanner.Bytes()
 			log.Debugf("templ: %s", string(b))
 			switch {
+			case bytes.HasPrefix(b, bytesPrefixWarning):
+				st.Set(statetrack.IndexTempl, scanner.Text())
 			case bytes.HasPrefix(b, bytesPrefixErr):
 				st.Set(statetrack.IndexTempl, scanner.Text())
 			case bytes.HasPrefix(b, bytesPrefixErrCleared):
@@ -105,6 +107,7 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 }
 
 var (
+	bytesPrefixWarning    = []byte(`(!)`)
 	bytesPrefixErr        = []byte(`(✗) Error generating code`)
 	bytesPrefixErrCleared = []byte(`(✓) Error cleared`)
 )
