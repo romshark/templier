@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	_ "embed"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -201,6 +200,7 @@ func main() {
 		debouncedNonTempl:       debounced,
 		debouncedTemplTxtChange: debouncedTempl,
 		conf:                    conf,
+		ignoreWriteChangeByPath: map[string]struct{}{},
 	}
 
 	var err error
@@ -325,6 +325,10 @@ func runAppLauncher(
 			c.Args = append(c.Args, conf.App.Flags...)
 		}
 
+		// Enable templ's development mode to read from .txt
+		// for faster reloads without recompilation.
+		c.Env = append(os.Environ(), "TEMPL_DEV_MODE=true")
+
 		var bufOutputCombined bytes.Buffer
 
 		c.Stdout = io.MultiWriter(os.Stdout, &bufOutputCombined)
@@ -430,12 +434,22 @@ type FileChangeHandler struct {
 	debouncedNonTempl       func(fn func())
 	debouncedTemplTxtChange func(fn func())
 	conf                    *config.Config
+	ignoreWriteChangeByPath map[string]struct{}
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
 	if e.Op == fsnotify.Chmod {
 		log.Debugf("ignoring file operation (%s): %q", e.Op.String(), e.Name)
 		return nil // Ignore chmod events.
+	}
+
+	if _, ok := h.ignoreWriteChangeByPath[e.Name]; ok {
+		log.Debugf(
+			"ignoring _templ.go file operation after .templ update (%s): %q",
+			e.Op.String(), e.Name,
+		)
+		delete(h.ignoreWriteChangeByPath, e.Name)
+		return nil // Ignore this change.
 	}
 
 	if h.conf.Log.ClearOn == config.LogClearOnFileChange {
@@ -454,7 +468,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 
 	if h.conf.Format {
 		if strings.HasSuffix(e.Name, ".templ") {
-			fmt.Printf("format templ file %s\n", e.Name)
+			log.Debugf("format templ file %s", e.Name)
 			err := cmdrun.RunTemplFmt(context.Background(), h.conf.App.DirWork, e.Name)
 			if err != nil {
 				log.Errorf("templ formatting error: %v", err)
@@ -542,8 +556,24 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 	} else {
 		log.Debugf("custom watchers: no watcher triggered")
 		// No custom watcher triggered, follow default pipeline.
-		if strings.HasSuffix(e.Name, ".templ") {
-			return nil // Ignore templ files, templ watch will take care of them.
+		if before, found := strings.CutSuffix(e.Name, ".templ"); found {
+			// Ignore the next _templ.go update for this file because we're running
+			// templ in dev mode and since templ v0.3.819 the generated _templ.go file
+			// is identical for both dev and prod builds. Templ will update both the
+			// _templ.txt and the _templ.go files and we just need to make sure
+			// the server compiles without reloading the page.
+			h.ignoreWriteChangeByPath[before+"_templ.go"] = struct{}{}
+
+			binaryPath := lintAndBuildServer(ctx, h.stateTracker, h.conf)
+			if err := os.Remove(binaryPath); err != nil {
+				log.Debugf("removing the temporary server binary: %v", err)
+			}
+			compiler := h.stateTracker.Get(statetrack.IndexGo)
+			linter := h.stateTracker.Get(statetrack.IndexGolangciLint)
+			if compiler != "" || linter != "" {
+				h.reload.BroadcastNonblock()
+			}
+			return nil
 		}
 		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
 			// A templ template is broken, don't continue.

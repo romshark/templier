@@ -23,7 +23,10 @@ import (
 	"github.com/romshark/yamagiconf"
 )
 
-const Version = "0.9.0"
+const (
+	Version               = "0.10.0"
+	SupportedTemplVersion = "v0.3.819"
+)
 
 var config Config
 
