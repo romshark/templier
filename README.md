@@ -26,11 +26,6 @@ Templiér is a Go web frontend development environment for
   - example: [Rebuild CSS](#custom-watcher-example-tailwindcss-and-postcss)
   - example: [Restart on config change](#custom-watcher-example-reload-on-config-change)
 
-ℹ️ Make sure you stop Templiér before you commit your git changes!
-Templiér uses templ's watcher internally which rebuilds all `_templ.go` files
-for production when it exits. All `_templ.go` files are optimized for development
-speed (hot-reload using `_templ.txt` files) while Templiér is running.
-
 ## Quick Start
 
 Install Templiér:
