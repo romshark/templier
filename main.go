@@ -287,7 +287,7 @@ func main() {
 	if err := errgrp.Wait(); err != nil {
 		log.Debugf("sub-process failure: %v", err)
 	}
-	cancel() // Ask all sub-processes to exit gracefuly.
+	cancel() // Ask all sub-processes to exit gracefully.
 	log.Debugf("waiting for remaining sub-processes to shut down")
 	wg.Wait() // Wait for all sub-processes to exit.
 }

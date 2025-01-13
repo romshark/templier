@@ -31,11 +31,11 @@ log:
 
 debounce:
   # debounce.templ defines how long to wait for more _templ.txt file changes
-  # after the first one occured before triggering all browser tabs to reload.
+  # after the first one occurred before triggering all browser tabs to reload.
   templ: 50ms
 
   # debounce.go defines how long to wait for more non-templ file changes
-  # after the first one occured before triggering server rebuild and restart.
+  # after the first one occurred before triggering server rebuild and restart.
   go: 50ms
 
 # tls can be set to null to serve HTTP instead of HTTPS.
@@ -144,7 +144,7 @@ custom-watchers:
     fail-on-error: true
 
     # debounce specifies how long to wait for more file changes
-    # after the first one occured before executing cmd.
+    # after the first one occurred before executing cmd.
     # Default debounce duration is applied if left empty.
     debounce:
 

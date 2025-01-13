@@ -28,7 +28,7 @@ func TestDebounce(t *testing.T) {
 		// No need to wg.Done since this will be overwritten by the second trigger
 		counter.Add(1)
 	})
-	trigger(func() { // This canceles the first trigger
+	trigger(func() { // This cancels the first trigger
 		defer wg.Done()
 		counter.Add(1)
 	})
