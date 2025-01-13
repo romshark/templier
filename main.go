@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	_ "embed"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 	"github.com/romshark/templier/internal/statetrack"
 	"github.com/romshark/templier/internal/syncstrset"
 	"github.com/romshark/templier/internal/watcher"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gobwas/glob"
@@ -40,7 +42,6 @@ const ServerHealthPreflightWaitInterval = 100 * time.Millisecond
 var (
 	chRerunServer  = make(chan struct{}, 1)
 	chRunNewServer = make(chan string, 1)
-	chStopServer   = make(chan struct{})
 
 	// filesToBeDeletedBeforeExit keeps a path->struct{} register to make sure
 	// all files created by this process are defer-deleted.
@@ -120,18 +121,22 @@ func main() {
 	reload := broadcaster.NewSignalBroadcaster()
 	st := statetrack.NewTracker(len(conf.CustomWatchers))
 
+	errgrp, ctx := errgroup.WithContext(ctx)
 	var wg sync.WaitGroup
-	wg.Add(1)
 
-	go func() {
+	wg.Add(1)
+	errgrp.Go(func() error {
 		defer wg.Done()
 		// Run templ in watch mode to create debug components.
 		// Once ctx is canceled templ will write production output and exit.
 		err := cmdrun.RunTemplWatch(ctx, conf.App.DirSrcRootAbsolute(), st)
-		if err != nil {
-			log.Errorf("running 'templ generate --watch': %v", err)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			err = fmt.Errorf("running 'templ generate --watch': %w", err)
+			log.Error(err.Error())
 		}
-	}()
+		log.Debugf("'templ generate --watch' stopped")
+		return err
+	})
 
 	// Initialize custom customWatchers.
 	customWatchers := make([]customWatcher, len(conf.CustomWatchers))
@@ -161,8 +166,25 @@ func main() {
 		}
 	}
 
-	go runTemplierServer(st, reload, conf)
-	go runAppLauncher(ctx, st, reload, conf)
+	wg.Add(1)
+	errgrp.Go(func() error {
+		defer wg.Done()
+		err := runTemplierServer(ctx, st, reload, conf)
+		if err != nil {
+			err = fmt.Errorf("running templier server: %w", err)
+			log.Error(err.Error())
+		}
+		log.Debugf("templier server stopped")
+		return err
+	})
+
+	wg.Add(1)
+	errgrp.Go(func() error {
+		defer wg.Done()
+		runAppLauncher(ctx, st, reload, conf)
+		log.Debugf("app launcher stopped")
+		return nil
+	})
 
 	debouncerTempl, debouncedTempl := debounce.NewSync(conf.Debounce.Templ)
 	go debouncerTempl(ctx)
@@ -237,11 +259,18 @@ func main() {
 		log.Fatalf("setting up file watcher for app.dir-src-root(%q): %v",
 			conf.App.DirSrcRootAbsolute(), err)
 	}
-	go func() {
-		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("running file watcher: %v", err)
+
+	wg.Add(1)
+	errgrp.Go(func() error {
+		defer wg.Done()
+		err := watcher.Run(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			err = fmt.Errorf("running file watcher: %w", err)
+			log.Error(err.Error())
 		}
-	}()
+		log.Debugf("file watcher stopped")
+		return err
+	})
 
 	{
 		templierBaseURL := url.URL{
@@ -255,36 +284,54 @@ func main() {
 		log.TemplierStarted(templierBaseURL.String())
 	}
 
-	<-ctx.Done()
-	log.Debugf("waiting for server to shut down")
-	wg.Wait()
-	chStopServer <- struct{}{}
+	if err := errgrp.Wait(); err != nil {
+		log.Debugf("sub-process failure: %v", err)
+	}
+	cancel() // Ask all sub-processes to exit gracefuly.
+	log.Debugf("waiting for remaining sub-processes to shut down")
+	wg.Wait() // Wait for all sub-processes to exit.
 }
 
 // rebuildLock prevents more than one rebuilder goroutine at a time.
 var rebuildLock sync.Mutex
 
 func runTemplierServer(
-	st *statetrack.Tracker, reload *broadcaster.SignalBroadcaster, conf *config.Config,
-) {
-	srv := server.New(
-		&http.Client{
-			Timeout: conf.ProxyTimeout,
-		},
-		st,
-		reload,
-		conf,
-	)
-	var err error
-	if conf.TLS != nil {
-		err = http.ListenAndServeTLS(conf.TemplierHost,
-			conf.TLS.Cert, conf.TLS.Key, srv)
-	} else {
-		err = http.ListenAndServe(conf.TemplierHost, srv)
+	ctx context.Context,
+	st *statetrack.Tracker,
+	reload *broadcaster.SignalBroadcaster,
+	conf *config.Config,
+) error {
+	httpSrv := http.Server{
+		Addr: conf.TemplierHost,
+		Handler: server.New(
+			&http.Client{
+				Timeout: conf.ProxyTimeout,
+			},
+			st,
+			reload,
+			conf,
+		),
 	}
-	if err != nil {
-		log.Fatalf("listening templier host: %v", err)
-	}
+
+	var errgrp errgroup.Group
+	errgrp.Go(func() error {
+		var err error
+		if conf.TLS != nil {
+			err = httpSrv.ListenAndServeTLS(conf.TLS.Cert, conf.TLS.Key)
+		} else {
+			err = httpSrv.ListenAndServe()
+		}
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	})
+	errgrp.Go(func() error {
+		<-ctx.Done() // Wait for shutdown signal.
+		return httpSrv.Shutdown(ctx)
+	})
+
+	return errgrp.Wait()
 }
 
 func runAppLauncher(
@@ -424,8 +471,9 @@ func runAppLauncher(
 			}
 			latestBinaryPath = newBinaryPath
 			rerun()
-		case <-chStopServer:
+		case <-ctx.Done():
 			stopServer()
+			return
 		}
 	}
 }
@@ -673,7 +721,6 @@ func lintAndBuildServer(
 		return
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
 	if conf.Lint {
 		wg.Add(1)
 		go func() {
@@ -681,6 +728,7 @@ func lintAndBuildServer(
 			runGolangCILint(ctx, st, conf)
 		}()
 	}
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		newBinaryPath = buildServer(ctx, st, conf)
