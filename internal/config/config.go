@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -408,7 +407,7 @@ func MustParse() *Config {
 	if err != nil {
 		log.Fatalf("getting working dir: %v", err)
 	}
-	config.serverOutPath = path.Join(os.TempDir(), workingDir)
+	config.serverOutPath = filepath.Join(os.TempDir(), workingDir)
 	log.Debugf("set server output path: %q", config.serverOutPath)
 
 	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)

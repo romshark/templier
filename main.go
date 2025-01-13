@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -711,7 +710,7 @@ func buildServer(
 
 func makeUniqueServerOutPath(basePath string) string {
 	tm := time.Now()
-	return path.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
+	return filepath.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
 }
 
 func lintAndBuildServer(
