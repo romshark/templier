@@ -433,12 +433,13 @@ func runAppLauncher(
 				log.Errorf("initializing preflight request: %v", err)
 				continue
 			}
-			_, err = healthCheckClient.Do(r)
+			resp, err := healthCheckClient.Do(r)
 			if err == nil {
 				log.Debugf("health check: OK, " +
 					"app server is ready to receive requests")
 				break // Server is ready to receive requests
 			}
+			resp.Body.Close()
 			log.Debugf("health check: err: %v", err)
 			if code := exitCode.Load(); code != -1 && code != 0 {
 				log.Errorf("health check: app server exited with exit code %d", code)
