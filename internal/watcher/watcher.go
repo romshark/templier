@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,7 +210,7 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 			// Ignore not exist errors since those are usually triggered
 			// by tools creating and deleting temporary files so quickly that
 			// the watcher sees a file change but isn't fast enough to read it.
-			if os.IsNotExist(err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				log.Errorf("adding created file (%q) to registry: %v",
 					e.Name, err)
 				return nil
