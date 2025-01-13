@@ -206,6 +206,14 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 		// A file was created.
 		updated, err := w.fileRegistry.Add(e.Name)
 		if err != nil {
+			// Ignore not exist errors since those are usually triggered
+			// by tools creating and deleting temporary files so quickly that
+			// the watcher sees a file change but isn't fast enough to read it.
+			if os.IsNotExist(err) {
+				log.Errorf("adding created file (%q) to registry: %v",
+					e.Name, err)
+				return nil
+			}
 			return fmt.Errorf("adding created file (%q) to registry: %w",
 				e.Name, err)
 		}
