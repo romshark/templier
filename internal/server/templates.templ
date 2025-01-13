@@ -49,7 +49,7 @@ templ errpage(
 		<body>
 			for i, c := range content {
 				<h3>{ c.Subject }</h3>
-				<pre>{ c.Body }</pre>
+				<div>{ c.Body }</div>
 				if i+1 != len(content) {
 					<hr/>
 				}

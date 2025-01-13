@@ -40,6 +40,7 @@ const ServerHealthPreflightWaitInterval = 100 * time.Millisecond
 var (
 	chRerunServer  = make(chan struct{}, 1)
 	chRunNewServer = make(chan string, 1)
+	buildIndex     atomic.Uint64
 )
 
 type customWatcher struct {
@@ -214,9 +215,9 @@ func main() {
 	}
 
 	// Finalize initial build
-	if binaryFile := lintAndBuildServer(ctx, st, conf, tempDirPath); binaryFile != "" {
+	if binFile, _ := lintAndBuildServer(ctx, st, conf, tempDirPath); binFile != "" {
 		// Launch only when there's no errors on initial build.
-		chRunNewServer <- binaryFile
+		chRunNewServer <- binFile
 	}
 
 	onChangeHandler := FileChangeHandler{
@@ -412,19 +413,28 @@ func runAppLauncher(
 			log.Errorf("health check: waiting for process: %v", err)
 		}()
 
-		const maxRetries = 100
+		retryOnBuildIndex := buildIndex.Load()
+		healthCheckStart := time.Now()
+		const retriesBeforeConsideredUnreachable = 100
 		for retry := 0; ; retry++ {
 			if ctx.Err() != nil {
 				// Canceled
 				return
 			}
-			if retry > maxRetries {
-				log.Errorf("waiting for server: %d retries failed", maxRetries)
+			if i := buildIndex.Load(); i != retryOnBuildIndex {
+				// Another binary was built, abort.
+				log.Debugf(
+					"abort health check because a newer build (%d) is available", i,
+				)
 				return
 			}
 			// Wait for the server to be ready
 			log.Debugf("health check (%d/%d): %s %q",
-				retry, maxRetries, http.MethodOptions, conf.App.Host.URL.String())
+				retry,
+				retriesBeforeConsideredUnreachable,
+				http.MethodOptions,
+				conf.App.Host.URL.String(),
+			)
 			r, err := http.NewRequest(
 				http.MethodOptions, conf.App.Host.URL.String(), http.NoBody,
 			)
@@ -446,9 +456,22 @@ func runAppLauncher(
 				return
 			}
 			log.Debugf("health check: wait: %s", ServerHealthPreflightWaitInterval)
+			if retry == retriesBeforeConsideredUnreachable {
+				log.Warnf("application server %s appears unreachable",
+					conf.App.Host.URL.String())
+				stateTracker.Set(statetrack.IndexUnreachable, fmt.Sprintf(
+					"Templiér couldn't reach the application server at %s. "+
+						"after retrying for %v. Templiér will continue to wait ⌛ but "+
+						"you might want to check whether your application server is "+
+						"initializing correctly and whether the URL under `app.host` "+
+						"was configured correctly.",
+					conf.App.Host.URL.String(), time.Since(healthCheckStart).Seconds(),
+				))
+			}
 			time.Sleep(ServerHealthPreflightWaitInterval)
 		}
 
+		stateTracker.Set(statetrack.IndexUnreachable, "")
 		if conf.Log.ClearOn == config.LogClearOnRestart {
 			log.ClearLogs()
 		}
@@ -617,7 +640,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			// the server compiles without reloading the page.
 			h.ignoreWriteChangeByPath[before+"_templ.go"] = struct{}{}
 
-			binaryPath := lintAndBuildServer(
+			binaryPath, _ := lintAndBuildServer(
 				ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
 			)
 			if err := os.Remove(binaryPath); err != nil {
@@ -650,7 +673,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		// templ files are OK, a non-templ file was changed.
 		log.TemplierFileChange(e)
 
-		newBinaryPath := lintAndBuildServer(
+		newBinaryPath, _ := lintAndBuildServer(
 			ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
 		)
 		if h.stateTracker.ErrIndex() != -1 {
@@ -684,10 +707,11 @@ func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.C
 
 func buildServer(
 	ctx context.Context, st *statetrack.Tracker, conf *config.Config, outBasePath string,
-) (newBinaryPath string) {
+) (newBinaryPath string, newBuildIndex uint64) {
 	startBuilding := time.Now()
 
-	binaryPath := makeUniqueServerOutPath(outBasePath)
+	newBuildIndex = buildIndex.Add(1)
+	binaryPath := makeUniqueServerOutPath(outBasePath, newBuildIndex)
 
 	args := append([]string{"build"}, conf.CompilerFlags()...)
 	args = append(args, "-o", binaryPath, conf.App.DirCmd)
@@ -701,18 +725,23 @@ func buildServer(
 	// Reset the process exit and go compiler errors
 	st.Set(statetrack.IndexGo, "")
 	st.Set(statetrack.IndexExit, "")
+	st.Set(statetrack.IndexUnreachable, "")
 	log.Durf("compiled cmd/server", time.Since(startBuilding))
-	return binaryPath
+
+	return binaryPath, newBuildIndex
 }
 
-func makeUniqueServerOutPath(basePath string) string {
+func makeUniqueServerOutPath(basePath string, buildIndex uint64) string {
 	tm := time.Now()
-	return filepath.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
+	return filepath.Join(basePath, "build_"+
+		strconv.FormatUint(buildIndex, 10)+
+		"_"+
+		strconv.FormatInt(tm.UnixNano(), 16))
 }
 
 func lintAndBuildServer(
 	ctx context.Context, st *statetrack.Tracker, conf *config.Config, outBasePath string,
-) (newBinaryPath string) {
+) (newBinaryPath string, newBuildIndex uint64) {
 	if st.ErrIndex() == statetrack.IndexTempl {
 		return
 	}
@@ -727,11 +756,11 @@ func lintAndBuildServer(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		newBinaryPath = buildServer(ctx, st, conf, outBasePath)
-		log.Debugf("new app server binary: %s", newBinaryPath)
+		newBinaryPath, newBuildIndex = buildServer(ctx, st, conf, outBasePath)
+		log.Debugf("new app server binary (build %d): %s", newBuildIndex, newBinaryPath)
 	}()
 	wg.Wait() // Wait for build and lint to finish.
-	return newBinaryPath
+	return newBinaryPath, newBuildIndex
 }
 
 func checkTemplVersion(ctx context.Context) error {
