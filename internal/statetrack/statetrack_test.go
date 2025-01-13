@@ -10,6 +10,8 @@ import (
 )
 
 func TestStateListener(t *testing.T) {
+	t.Parallel()
+
 	s := statetrack.NewTracker(2)
 
 	require.Zero(t, s.GetCustomWatcher(0))
@@ -49,6 +51,8 @@ func TestStateListener(t *testing.T) {
 }
 
 func TestStateReset(t *testing.T) {
+	t.Parallel()
+
 	s := statetrack.NewTracker(0)
 	require.Equal(t, -1, s.ErrIndex())
 
@@ -72,6 +76,8 @@ func TestStateReset(t *testing.T) {
 }
 
 func TestStateNoChange(t *testing.T) {
+	t.Parallel()
+
 	s := statetrack.NewTracker(0)
 	require.Equal(t, -1, s.ErrIndex())
 

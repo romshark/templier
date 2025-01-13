@@ -9,6 +9,8 @@ import (
 )
 
 func TestRequire(t *testing.T) {
+	t.Parallel()
+
 	var s action.SyncStatus
 	require.Equal(t, action.ActionNone, s.Load())
 

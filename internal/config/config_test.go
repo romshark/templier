@@ -11,6 +11,8 @@ import (
 )
 
 func TestValidateType(t *testing.T) {
+	t.Parallel()
+
 	err := yamagiconf.ValidateType[config.Config]()
 	require.NoError(t, err)
 }

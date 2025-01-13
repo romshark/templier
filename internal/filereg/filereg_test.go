@@ -11,6 +11,8 @@ import (
 )
 
 func TestRegistry(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	pathFoo := filepath.Join(base, "foo")
 	pathBar := filepath.Join(base, "bar")
@@ -85,6 +87,8 @@ func TestRegistry(t *testing.T) {
 }
 
 func TestRegistryAddErrFileNotFound(t *testing.T) {
+	t.Parallel()
+
 	r := filereg.New()
 	updated, err := r.Add("non-existent_file")
 	require.False(t, updated)
@@ -92,6 +96,8 @@ func TestRegistryAddErrFileNotFound(t *testing.T) {
 }
 
 func TestRegistryReset(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	p := filepath.Join(base, "foo")
 
@@ -118,6 +124,8 @@ func TestRegistryReset(t *testing.T) {
 }
 
 func TestRegistryRemoveWithPrefix(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	pathFoo := filepath.Join(base, "foo")
 	pathBar := filepath.Join(base, "bar")

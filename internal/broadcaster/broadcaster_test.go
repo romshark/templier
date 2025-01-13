@@ -11,6 +11,8 @@ import (
 )
 
 func TestBroadcast(t *testing.T) {
+	t.Parallel()
+
 	b := broadcaster.NewSignalBroadcaster()
 	require.Equal(t, 0, b.Len())
 

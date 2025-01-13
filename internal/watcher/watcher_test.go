@@ -14,6 +14,8 @@ import (
 )
 
 func TestWatcher(t *testing.T) {
+	t.Parallel()
+
 	base, notifications := t.TempDir(), make(chan fsnotify.Event)
 	w := runNewWatcher(t, base, notifications)
 
@@ -134,6 +136,8 @@ func TestWatcher(t *testing.T) {
 // then replaces the original file with the temp files.
 // The watcher must ignore the temporary files in this scenario.
 func TestTemplTempFiles(t *testing.T) {
+	t.Parallel()
+
 	base, notifications := t.TempDir(), make(chan fsnotify.Event)
 	w := runNewWatcher(t, base, notifications)
 
@@ -187,6 +191,8 @@ func eventsMustContain(t *testing.T, set []fsnotify.Event, contains fsnotify.Eve
 }
 
 func TestWatcherRunCancelContext(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) error {
 		return nil
@@ -212,6 +218,8 @@ func TestWatcherRunCancelContext(t *testing.T) {
 }
 
 func TestWatcherErrRunning(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
 	require.NoError(t, w.Add(base)) // Wait for the runner to start
@@ -219,6 +227,8 @@ func TestWatcherErrRunning(t *testing.T) {
 }
 
 func TestWatcherAdd_AlreadyWatched(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
 
@@ -230,6 +240,8 @@ func TestWatcherAdd_AlreadyWatched(t *testing.T) {
 }
 
 func TestWatcherRemove(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
 
@@ -265,6 +277,8 @@ func TestWatcherRemove(t *testing.T) {
 }
 
 func TestWatcherIgnore(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	MustMkdir(t, base, ".hidden")
 	notifications := make(chan fsnotify.Event, 2)
@@ -307,6 +321,8 @@ func TestWatcherIgnore(t *testing.T) {
 }
 
 func TestWatcherUnignore(t *testing.T) {
+	t.Parallel()
+
 	base, notifications := t.TempDir(), make(chan fsnotify.Event)
 	w := runNewWatcher(t, base, notifications)
 
@@ -367,6 +383,8 @@ func MustRename(t *testing.T, from, to string) {
 
 // TestConcurrency requires go test -race
 func TestConcurrency(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
 

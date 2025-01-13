@@ -9,6 +9,8 @@ import (
 )
 
 func TestDurStr(t *testing.T) {
+	t.Parallel()
+
 	f := func(input time.Duration, expect string) {
 		t.Helper()
 		fmt.Println(input.String())

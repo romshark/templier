@@ -13,6 +13,8 @@ import (
 )
 
 func TestDebounce(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	runDebouncer, trigger := debounce.NewSync(time.Millisecond)
@@ -37,6 +39,8 @@ func TestDebounce(t *testing.T) {
 }
 
 func TestNoDebounce(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	runDebouncer, trigger := debounce.NewSync(0)
