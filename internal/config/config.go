@@ -30,8 +30,6 @@ const (
 var config Config
 
 type Config struct {
-	serverOutPath string `yaml:"-"` // Initialized from os.Getwd and os.TempDir
-
 	// Compiler defines optional Go compiler flags
 	Compiler *ConfigCompiler `yaml:"compiler"`
 
@@ -73,8 +71,6 @@ type Config struct {
 	// CustomWatchers defines custom file change watchers.
 	CustomWatchers []ConfigCustomWatcher `yaml:"custom-watchers"`
 }
-
-func (c *Config) ServerOutPath() string { return c.serverOutPath }
 
 type ConfigApp struct {
 	// DirSrcRoot is the source root directory for the application server.
@@ -402,13 +398,6 @@ func MustParse() *Config {
 			config.Debounce.Go = 50 * time.Millisecond
 		}
 	}
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("getting working dir: %v", err)
-	}
-	config.serverOutPath = filepath.Join(os.TempDir(), workingDir)
-	log.Debugf("set server output path: %q", config.serverOutPath)
 
 	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
 	if err != nil {

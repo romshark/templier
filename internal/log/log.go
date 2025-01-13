@@ -240,7 +240,7 @@ func Fatalf(f string, v ...any) {
 		fmt.Fprint(out, time.Now().Format(TimeFormat))
 		fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "ERR: ")
+	fRed.Fprint(out, "FATAL: ")
 	fmt.Fprintf(out, f, v...)
 	fmt.Fprintln(out, "")
 	os.Exit(1)
