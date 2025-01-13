@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	Version               = "0.10.1"
+	Version               = "0.10.2"
 	SupportedTemplVersion = "v0.3.819"
 )
 
