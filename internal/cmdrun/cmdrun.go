@@ -58,7 +58,10 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 	// Don't use CommandContext since it will kill the process
 	// which we don't want. We want the command to finish.
 	cmd := exec.Command(
-		"templ", "generate", "--log-level", "debug", "--watch",
+		"templ", "generate",
+		"--watch",
+		"--log-level", "debug",
+		"--open-browser=false",
 		// Disable Templ's new native Go watcher to avoid any collisions
 		// since Templier is already watching .go file changes.
 		"--watch-pattern", `(.+\.templ$)|(.+_templ\.txt$)`,
