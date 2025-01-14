@@ -28,6 +28,7 @@ import (
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/server"
 	"github.com/romshark/templier/internal/statetrack"
+	"github.com/romshark/templier/internal/templgofilereg"
 	"github.com/romshark/templier/internal/watcher"
 	"golang.org/x/sync/errgroup"
 
@@ -227,7 +228,7 @@ func main() {
 		debouncedNonTempl:       debounced,
 		debouncedTemplTxtChange: debouncedTempl,
 		conf:                    conf,
-		ignoreWriteChangeByPath: map[string]struct{}{},
+		templGoFileRegistry:     templgofilereg.New(),
 	}
 
 	onChangeHandler.watchBasePath, err = filepath.Abs(conf.App.DirWork)
@@ -488,22 +489,17 @@ type FileChangeHandler struct {
 	debouncedNonTempl       func(fn func())
 	debouncedTemplTxtChange func(fn func())
 	conf                    *config.Config
-	ignoreWriteChangeByPath map[string]struct{}
+	templGoFileRegistry     *templgofilereg.Comparer
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
-	if e.Op == fsnotify.Chmod {
+	switch e.Op {
+	case fsnotify.Chmod:
 		log.Debugf("ignoring file operation (%s): %q", e.Op.String(), e.Name)
 		return nil // Ignore chmod events.
-	}
-
-	if _, ok := h.ignoreWriteChangeByPath[e.Name]; ok {
-		log.Debugf(
-			"ignoring _templ.go file operation after .templ update (%s): %q",
-			e.Op.String(), e.Name,
-		)
-		delete(h.ignoreWriteChangeByPath, e.Name)
-		return nil // Ignore this change.
+	case fsnotify.Remove:
+		// No need to check for _templ.go suffix, Remove is a no-op for other files.
+		h.templGoFileRegistry.Remove(e.Name)
 	}
 
 	if h.conf.Log.ClearOn == config.LogClearOnFileChange {
@@ -610,14 +606,8 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 	} else {
 		log.Debugf("custom watchers: no watcher triggered")
 		// No custom watcher triggered, follow default pipeline.
-		if before, found := strings.CutSuffix(e.Name, ".templ"); found {
-			// Ignore the next _templ.go update for this file because we're running
-			// templ in dev mode and since templ v0.3.819 the generated _templ.go file
-			// is identical for both dev and prod builds. Templ will update both the
-			// _templ.txt and the _templ.go files and we just need to make sure
-			// the server compiles without reloading the page.
-			h.ignoreWriteChangeByPath[before+"_templ.go"] = struct{}{}
-
+		if strings.HasSuffix(e.Name, ".templ") {
+			// Try to build the server but don't cause reloads if it succeeds.
 			binaryPath := lintAndBuildServer(
 				ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
 			)
@@ -635,11 +625,17 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			// A templ template is broken, don't continue.
 			return nil
 		}
-		if strings.HasSuffix(e.Name, "_templ.txt") {
-			// Reload browser tabs when a _templ.txt file has changed.
-			h.debouncedTemplTxtChange(func() {
-				h.reload.BroadcastNonblock()
-			})
+		if strings.HasSuffix(e.Name, "_templ.go") {
+			if recompile, err := h.templGoFileRegistry.Compare(e.Name); err != nil {
+				log.Errorf("checking generated templ go file: %v", err)
+				return nil
+			} else if !recompile {
+				// Reload browser tabs when a _templ.go file has changed without
+				// changing its code structure (load from _templ.txt is possible).
+				h.debouncedTemplTxtChange(func() {
+					h.reload.BroadcastNonblock()
+				})
+			}
 			return nil
 		}
 	}
