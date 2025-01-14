@@ -43,7 +43,8 @@ func TestComparer(t *testing.T) {
 
 	check := func(inputFilePath string, expectRecompile bool) {
 		t.Helper()
-		overwriteFile(inputFilePath, testFile)
+		err := overwriteFile(inputFilePath, testFile)
+		require.NoError(t, err)
 		recompile, err := c.Compare(testFile)
 		require.NoError(t, err)
 		// Repeated check, no change relative to previous call.
