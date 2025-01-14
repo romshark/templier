@@ -113,6 +113,6 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 
 var (
 	bytesPrefixWarning    = []byte(`(!)`)
-	bytesPrefixErr        = []byte(`(✗) Error generating code`)
+	bytesPrefixErr        = []byte(`(✗)`)
 	bytesPrefixErrCleared = []byte(`(✓) Error cleared`)
 )
