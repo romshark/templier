@@ -208,6 +208,14 @@ for events and reload or display necessary status information when necessary.
 In the CLI console logs, all Templiér logs are prefixed with 🤖,
 while application server logs are displayed without the prefix.
 
+### Health Check
+
+In order to check the health status of the application server, Templiér keeps sending
+`OPTIONS` requests at the URL specified under the `app.host` config for 100 times
+in 100 millisecond intervals. If the server fails to respond, Templiér considers it
+unhealthy and shows an "server unreachable" error while continuing to try to reach it
+until a newer build is available (code was updated) or the server becomes reachable.
+
 ## Development
 
 Run the tests using `go test -race ./...` and use the latest version of

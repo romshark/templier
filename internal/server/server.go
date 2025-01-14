@@ -271,6 +271,9 @@ func (s *Server) newReports() []Report {
 	if m := s.stateTracker.Get(statetrack.IndexExit); m != "" {
 		return []Report{{Subject: "process", Body: m}}
 	}
+	if m := s.stateTracker.Get(statetrack.IndexUnreachable); m != "" {
+		return []Report{{Subject: "connection refused", Body: m}}
+	}
 	for i, w := range s.config.CustomWatchers {
 		if m := s.stateTracker.Get(statetrack.IndexOffsetCustomWatcher + i); m != "" {
 			report = append(report, Report{Subject: string(w.Name), Body: m})

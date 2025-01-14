@@ -11,7 +11,8 @@ const (
 	IndexGolangciLint        = 1
 	IndexGo                  = 2
 	IndexExit                = 3
-	IndexOffsetCustomWatcher = 4
+	IndexUnreachable         = 4
+	IndexOffsetCustomWatcher = 5
 )
 
 func (t *Tracker) ErrIndex() int {
@@ -31,7 +32,8 @@ type Tracker struct {
 	// index 1: golangci-lint errors
 	// index 2: go compiler errors
 	// index 3: process exit code != 0
-	// index 4-end: custom watcher errors
+	// index 4: application server is unreachable
+	// index 5-end: custom watcher errors
 	errMsgBuffer []string
 	lock         sync.Mutex
 	broadcaster  *broadcaster.SignalBroadcaster

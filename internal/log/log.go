@@ -161,6 +161,22 @@ func Infof(f string, v ...any) {
 	fmt.Fprintln(out, "")
 }
 
+// Warnf prints an info line to console.
+func Warnf(f string, v ...any) {
+	if Level() < LogLevelVerbose {
+		return
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Fprint(out, LinePrefix)
+	if Level() >= LogLevelDebug {
+		fmt.Fprint(out, time.Now().Format(TimeFormat))
+		fYellow.Fprint(out, " WARNING: ")
+	}
+	fmt.Fprintf(out, f, v...)
+	fmt.Fprintln(out, "")
+}
+
 // Errorf prints an error line to console.
 func Error(msg string) {
 	lock.Lock()
