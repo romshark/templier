@@ -25,6 +25,7 @@ import (
 	"github.com/romshark/templier/internal/cmdrun"
 	"github.com/romshark/templier/internal/config"
 	"github.com/romshark/templier/internal/debounce"
+	"github.com/romshark/templier/internal/fswalk"
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/server"
 	"github.com/romshark/templier/internal/statetrack"
@@ -187,10 +188,7 @@ func main() {
 		return nil
 	})
 
-	debouncerTempl, debouncedTempl := debounce.NewSync(conf.Debounce.Templ)
-	go debouncerTempl(ctx)
-
-	debouncer, debounced := debounce.NewSync(conf.Debounce.Go)
+	debouncer, debounced := debounce.NewSync(conf.Debounce)
 	go debouncer(ctx)
 
 	// Initial build, run all custom watcher cmd's and if they succeed then lint & build
@@ -220,15 +218,33 @@ func main() {
 		chRunNewServer <- binaryFile
 	}
 
+	// Collect all _templ.go files and add them to the registry
+	templGoFileReg := templgofilereg.New()
+	if currentWorkingDir, err := os.Getwd(); err != nil {
+		log.Errorf("getting current working directory: %v", err)
+	} else {
+		if err := fswalk.Files(currentWorkingDir, func(name string) error {
+			if !strings.HasSuffix(name, "_templ.go") {
+				return nil
+			}
+			if _, err := templGoFileReg.Compare(name); err != nil {
+				log.Errorf("registering generated templ Go file: %q: %v", name, err)
+			}
+			log.Debugf("registered existing generated templ Go file: %q", name)
+			return nil
+		}); err != nil {
+			log.Errorf("collecting existing _templ.go files: %v", err)
+		}
+	}
+
 	onChangeHandler := FileChangeHandler{
-		binaryOutBasePath:       tempDirPath,
-		customWatchers:          customWatchers,
-		stateTracker:            st,
-		reload:                  reload,
-		debouncedNonTempl:       debounced,
-		debouncedTemplTxtChange: debouncedTempl,
-		conf:                    conf,
-		templGoFileRegistry:     templgofilereg.New(),
+		binaryOutBasePath:   tempDirPath,
+		customWatchers:      customWatchers,
+		stateTracker:        st,
+		reload:              reload,
+		debounced:           debounced,
+		conf:                conf,
+		templGoFileRegistry: templGoFileReg,
 	}
 
 	onChangeHandler.watchBasePath, err = filepath.Abs(conf.App.DirWork)
@@ -481,15 +497,14 @@ func runAppLauncher(
 }
 
 type FileChangeHandler struct {
-	binaryOutBasePath       string
-	watchBasePath           string
-	customWatchers          []customWatcher
-	stateTracker            *statetrack.Tracker
-	reload                  *broadcaster.SignalBroadcaster
-	debouncedNonTempl       func(fn func())
-	debouncedTemplTxtChange func(fn func())
-	conf                    *config.Config
-	templGoFileRegistry     *templgofilereg.Comparer
+	binaryOutBasePath   string
+	watchBasePath       string
+	customWatchers      []customWatcher
+	stateTracker        *statetrack.Tracker
+	reload              *broadcaster.SignalBroadcaster
+	debounced           func(fn func())
+	conf                *config.Config
+	templGoFileRegistry *templgofilereg.Comparer
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
@@ -605,20 +620,31 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		}
 	} else {
 		log.Debugf("custom watchers: no watcher triggered")
+		if strings.HasSuffix(e.Name, "_templ.txt") {
+			log.Debugf("ignore change in generated templ txt: %s", e.Name)
+			return nil
+		}
 		// No custom watcher triggered, follow default pipeline.
 		if strings.HasSuffix(e.Name, ".templ") {
-			// Try to build the server but don't cause reloads if it succeeds.
-			binaryPath := lintAndBuildServer(
-				ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
-			)
-			if err := os.Remove(binaryPath); err != nil {
-				log.Debugf("removing the temporary server binary: %v", err)
-			}
-			compiler := h.stateTracker.Get(statetrack.IndexGo)
-			linter := h.stateTracker.Get(statetrack.IndexGolangciLint)
-			if compiler != "" || linter != "" {
-				h.reload.BroadcastNonblock()
-			}
+			go func() {
+				// Try to build the server but don't cause reloads if it succeeds,
+				// instead just report the errors because the reload or recompilation
+				// will be done once the _templ.go file change is detected.
+				// This is necessary when for example an argument was added to one of
+				// the .templ files but the Go code using the generated render functions
+				// doesn't yet pass this argument.
+				binaryPath := lintAndBuildServer(
+					ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
+				)
+				if err := os.Remove(binaryPath); err != nil {
+					log.Debugf("removing the temporary server binary: %v", err)
+				}
+				compiler := h.stateTracker.Get(statetrack.IndexGo)
+				linter := h.stateTracker.Get(statetrack.IndexGolangciLint)
+				if compiler != "" || linter != "" {
+					h.reload.BroadcastNonblock()
+				}
+			}()
 			return nil
 		}
 		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
@@ -630,17 +656,17 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 				log.Errorf("checking generated templ go file: %v", err)
 				return nil
 			} else if !recompile {
+				log.Debugf("_templ.go change doesn't require recompilation")
 				// Reload browser tabs when a _templ.go file has changed without
 				// changing its code structure (load from _templ.txt is possible).
-				h.debouncedTemplTxtChange(func() {
-					h.reload.BroadcastNonblock()
-				})
+				h.reload.BroadcastNonblock()
+				return nil
 			}
-			return nil
+			log.Debugf("change in _templ.go requires recompilation")
 		}
 	}
 
-	h.debouncedNonTempl(func() {
+	h.debounced(func() {
 		rebuildLock.Lock()
 		defer rebuildLock.Unlock()
 

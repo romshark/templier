@@ -39,14 +39,7 @@ type Config struct {
 	Log ConfigLog `yaml:"log"`
 
 	// Debounce is the file watcher debounce duration.
-	Debounce struct {
-		// Templ is the browser tab reload debounce duration
-		// for _templ.txt changes.
-		Templ time.Duration `yaml:"templ"`
-
-		// Go is the Go recompilation debounce duration.
-		Go time.Duration `yaml:"go"`
-	} `yaml:"debounce"`
+	Debounce time.Duration `yaml:"debounce"`
 
 	// ProxyTimeout defines for how long the proxy must try retry
 	// requesting the application server when receiving connection refused error.
@@ -367,8 +360,7 @@ func MustParse() *Config {
 	config.App.DirSrcRoot = "./"
 	config.App.DirCmd = "./"
 	config.App.DirWork = "./"
-	config.Debounce.Templ = 50 * time.Millisecond
-	config.Debounce.Go = 50 * time.Millisecond
+	config.Debounce = 50 * time.Millisecond
 	config.ProxyTimeout = 2 * time.Second
 	config.Lint = true
 	config.Format = true
@@ -395,7 +387,7 @@ func MustParse() *Config {
 	// Set default watch debounce
 	for i := range config.CustomWatchers {
 		if config.CustomWatchers[i].Debounce == 0 {
-			config.Debounce.Go = 50 * time.Millisecond
+			config.CustomWatchers[i].Debounce = 50 * time.Millisecond
 		}
 	}
 

@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/romshark/templier/internal/filereg"
+	"github.com/romshark/templier/internal/fswalk"
 	"github.com/romshark/templier/internal/log"
 
 	"github.com/fsnotify/fsnotify"
@@ -128,17 +129,14 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 
 	func() { // Register all files from the base dir
 		defer w.lock.Unlock()
-		err = filepath.Walk(w.baseDir, func(p string, i os.FileInfo, err error) error {
-			if err != nil || i.IsDir() {
-				return err
-			}
-			if err := w.isExluded(p); err != nil {
+		err = fswalk.Files(w.baseDir, func(name string) error {
+			if err := w.isExluded(name); err != nil {
 				if err == errExcluded {
 					return nil // Object is excluded from watcher, don't notify
 				}
 				return fmt.Errorf("isExluded: %w", err)
 			}
-			_, err = w.fileRegistry.Add(p)
+			_, err = w.fileRegistry.Add(name)
 			return err
 		})
 

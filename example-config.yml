@@ -29,14 +29,9 @@ log:
   # print-js-debug-logs enables Templiér debug logs in the browser.
   print-js-debug-logs: true
 
-debounce:
-  # debounce.templ defines how long to wait for more _templ.txt file changes
-  # after the first one occurred before triggering all browser tabs to reload.
-  templ: 50ms
-
-  # debounce.go defines how long to wait for more non-templ file changes
-  # after the first one occurred before triggering server rebuild and restart.
-  go: 50ms
+# debounce defines how long to wait for more file changes
+# after the first one occurred before triggering server rebuild and restart.
+debounce: 50ms
 
 # tls can be set to null to serve HTTP instead of HTTPS.
 tls:
