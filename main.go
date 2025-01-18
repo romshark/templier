@@ -24,6 +24,7 @@ import (
 	"github.com/romshark/templier/internal/broadcaster"
 	"github.com/romshark/templier/internal/cmdrun"
 	"github.com/romshark/templier/internal/config"
+	"github.com/romshark/templier/internal/ctxrun"
 	"github.com/romshark/templier/internal/debounce"
 	"github.com/romshark/templier/internal/fswalk"
 	"github.com/romshark/templier/internal/log"
@@ -238,13 +239,15 @@ func main() {
 	}
 
 	onChangeHandler := FileChangeHandler{
-		binaryOutBasePath:   tempDirPath,
-		customWatchers:      customWatchers,
-		stateTracker:        st,
-		reload:              reload,
-		debounced:           debounced,
-		conf:                conf,
-		templGoFileRegistry: templGoFileReg,
+		binaryOutBasePath:     tempDirPath,
+		customWatchers:        customWatchers,
+		stateTracker:          st,
+		reload:                reload,
+		debounced:             debounced,
+		conf:                  conf,
+		templGoFileRegistry:   templGoFileReg,
+		validationBuildRunner: ctxrun.New(),
+		buildRunner:           ctxrun.New(),
 	}
 
 	onChangeHandler.watchBasePath, err = filepath.Abs(conf.App.DirWork)
@@ -308,9 +311,6 @@ func main() {
 	log.Debugf("waiting for remaining sub-processes to shut down")
 	wg.Wait() // Wait for all sub-processes to exit.
 }
-
-// rebuildLock prevents more than one rebuilder goroutine at a time.
-var rebuildLock sync.Mutex
 
 func runTemplierServer(
 	ctx context.Context,
@@ -409,7 +409,9 @@ func runAppLauncher(
 		if err := c.Start(); err != nil {
 			log.Errorf("running %s: %v", conf.App.DirCmd, err)
 		}
-		log.Debugf("app server running (pid: %d)", c.Process.Pid)
+		if c.Process != nil {
+			log.Debugf("app server running (pid: %d)", c.Process.Pid)
+		}
 
 		var exitCode atomic.Int32
 		exitCode.Store(-1)
@@ -497,14 +499,16 @@ func runAppLauncher(
 }
 
 type FileChangeHandler struct {
-	binaryOutBasePath   string
-	watchBasePath       string
-	customWatchers      []customWatcher
-	stateTracker        *statetrack.Tracker
-	reload              *broadcaster.SignalBroadcaster
-	debounced           func(fn func())
-	conf                *config.Config
-	templGoFileRegistry *templgofilereg.Comparer
+	binaryOutBasePath     string
+	watchBasePath         string
+	customWatchers        []customWatcher
+	stateTracker          *statetrack.Tracker
+	reload                *broadcaster.SignalBroadcaster
+	debounced             func(fn func())
+	conf                  *config.Config
+	templGoFileRegistry   *templgofilereg.Comparer
+	validationBuildRunner *ctxrun.Runner
+	buildRunner           *ctxrun.Runner
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
@@ -626,7 +630,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		}
 		// No custom watcher triggered, follow default pipeline.
 		if strings.HasSuffix(e.Name, ".templ") {
-			go func() {
+			h.buildRunner.Go(context.Background(), func(ctx context.Context) {
 				// Try to build the server but don't cause reloads if it succeeds,
 				// instead just report the errors because the reload or recompilation
 				// will be done once the _templ.go file change is detected.
@@ -639,12 +643,15 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 				if err := os.Remove(binaryPath); err != nil {
 					log.Debugf("removing the temporary server binary: %v", err)
 				}
+				if ctx.Err() != nil {
+					return // Canceled.
+				}
 				compiler := h.stateTracker.Get(statetrack.IndexGo)
 				linter := h.stateTracker.Get(statetrack.IndexGolangciLint)
 				if compiler != "" || linter != "" {
 					h.reload.BroadcastNonblock()
 				}
-			}()
+			})
 			return nil
 		}
 		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
@@ -667,21 +674,18 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 	}
 
 	h.debounced(func() {
-		rebuildLock.Lock()
-		defer rebuildLock.Unlock()
-
-		// templ files are OK, a non-templ file was changed.
 		log.TemplierFileChange(e)
-
-		newBinaryPath := lintAndBuildServer(
-			ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
-		)
-		if h.stateTracker.ErrIndex() != -1 {
-			h.reload.BroadcastNonblock()
-			// Don't restart the server if there was any error.
-			return
-		}
-		chRunNewServer <- newBinaryPath
+		h.buildRunner.Go(context.Background(), func(ctx context.Context) {
+			newBinaryPath := lintAndBuildServer(
+				ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
+			)
+			if h.stateTracker.ErrIndex() != -1 {
+				h.reload.BroadcastNonblock()
+				// Don't restart the server if there was any error.
+				return
+			}
+			chRunNewServer <- newBinaryPath
+		})
 	})
 	return nil
 }
@@ -692,6 +696,10 @@ func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.C
 		ctx, conf.App.DirWork, nil,
 		"golangci-lint", "run", conf.App.DirSrcRoot+"/...",
 	)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		log.Debugf("golangci-lint cmd aborted")
+		return // No need to check errors and continue.
+	}
 	if errors.Is(err, cmdrun.ErrExitCode1) {
 		bufStr := string(buf)
 		log.Error(bufStr)
@@ -715,6 +723,10 @@ func buildServer(
 	args := append([]string{"build"}, conf.CompilerFlags()...)
 	args = append(args, "-o", binaryPath, conf.App.DirCmd)
 	buf, err := cmdrun.Run(ctx, conf.App.DirWork, conf.CompilerEnv(), "go", args...)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		log.Debugf("go build cmd aborted")
+		return // No need to check errors and continue.
+	}
 	if err != nil {
 		bufStr := string(buf)
 		log.Error(bufStr)
