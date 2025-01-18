@@ -37,10 +37,11 @@ func Test(t *testing.T) {
 		f := func(t *testing.T, dir string, expect ...string) {
 			t.Helper()
 			actual := []string{}
-			fswalk.Files(dir, func(name string) error {
+			err := fswalk.Files(dir, func(name string) error {
 				actual = append(actual, name)
 				return nil
 			})
+			require.NoError(t, err)
 			require.Equal(t, expect, actual)
 		}
 
@@ -61,10 +62,11 @@ func Test(t *testing.T) {
 		f := func(t *testing.T, dir string, expect ...string) {
 			t.Helper()
 			actual := []string{}
-			fswalk.Dirs(dir, func(name string) error {
+			err := fswalk.Dirs(dir, func(name string) error {
 				actual = append(actual, name)
 				return nil
 			})
+			require.NoError(t, err)
 			require.Equal(t, expect, actual)
 		}
 
