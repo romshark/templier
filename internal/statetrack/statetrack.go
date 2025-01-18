@@ -14,6 +14,7 @@ const (
 	IndexOffsetCustomWatcher = 4
 )
 
+// ErrIndex returns -1 if there's no error.
 func (t *Tracker) ErrIndex() int {
 	t.lock.Lock()
 	defer t.lock.Unlock()
