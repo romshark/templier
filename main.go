@@ -434,7 +434,7 @@ func runAppLauncher(
 		const maxRetries = 100
 		for retry := 0; ; retry++ {
 			if ctx.Err() != nil {
-				// Canceled
+				// App launcher stopped.
 				return
 			}
 			if retry > maxRetries {
