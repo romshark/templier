@@ -630,7 +630,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		}
 		// No custom watcher triggered, follow default pipeline.
 		if strings.HasSuffix(e.Name, ".templ") {
-			h.buildRunner.Go(context.Background(), func(ctx context.Context) {
+			h.validationBuildRunner.Go(context.Background(), func(ctx context.Context) {
 				// Try to build the server but don't cause reloads if it succeeds,
 				// instead just report the errors because the reload or recompilation
 				// will be done once the _templ.go file change is detected.
