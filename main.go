@@ -658,16 +658,17 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 				return nil
 			} else if !recompile {
 				log.Debugf("_templ.go change doesn't require recompilation")
-				// Reload browser tabs when a _templ.go file has changed without
-				// changing its code structure (load from _templ.txt is possible).
 
-				// DONT BROADCAST IF appLauncher is active
-				if rerunActive.Load() {
+				// Don't browser reload tabs while the app server is restarting.
+				if !rerunActive.Load() {
+					// Reload browser tabs when a _templ.go file has changed without
+					// changing its code structure (load from _templ.txt is possible).
 					h.reload.BroadcastNonblock()
 				}
+			} else {
+				log.Debugf("change in _templ.go requires recompilation")
+				restartServer = true
 			}
-			restartServer = true
-			log.Debugf("change in _templ.go requires recompilation")
 		}
 	}
 
