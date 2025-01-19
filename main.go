@@ -364,15 +364,16 @@ func runAppLauncher(
 	var latestBinaryPath string
 	var waitExit sync.WaitGroup
 
-	stopServer := func() {
+	stopServer := func() (stopped bool) {
 		if latestSrvCmd == nil || latestSrvCmd.Process == nil {
-			return
+			return false
 		}
 		log.Debugf("stopping app server with pid %d", latestSrvCmd.Process.Pid)
 		if err := latestSrvCmd.Process.Signal(os.Interrupt); err != nil {
 			log.Errorf("sending interrupt signal to app server: %v", err)
-			return
+			return false
 		}
+		return true
 	}
 
 	healthCheckClient := &http.Client{Transport: &http.Transport{
@@ -384,10 +385,12 @@ func runAppLauncher(
 		defer rerunActive.Store(false)
 
 		start := time.Now()
-		stopServer()
+		stopped := stopServer()
 		waitExit.Wait()
 
-		log.Durf("stopped server", time.Since(start))
+		if stopped {
+			log.Durf("stopped server", time.Since(start))
+		}
 
 		if stateTracker.ErrIndex() != -1 {
 			// There's some error, we can't rerun now.
@@ -485,7 +488,12 @@ func runAppLauncher(
 		if conf.Log.ClearOn == config.LogClearOnRestart {
 			log.ClearLogs()
 		}
-		log.Durf("restarted server", time.Since(start))
+
+		if stopped {
+			log.Durf("restarted server", time.Since(start))
+		} else {
+			log.Durf("started server", time.Since(start))
+		}
 
 		// Notify all clients to reload the page
 		reload.BroadcastNonblock()
