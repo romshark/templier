@@ -150,7 +150,14 @@ func (s *Server) modifyResponse(r *http.Response) error {
 	}
 
 	// Inject JavaScript
-	modified := bytes.Replace(body, bytesBodyClosingTag, s.jsInjection, 1)
+	var modified []byte
+	if !bytes.Contains(body, bytesBodyClosingTag) {
+		cp := make([]byte, len(s.jsInjection))
+		copy(cp, s.jsInjection)
+		modified = append(cp, body...)
+	} else {
+		modified = bytes.Replace(body, bytesBodyClosingTag, s.jsInjection, 1)
+	}
 
 	// Encode the response.
 	var buf bytes.Buffer
