@@ -626,8 +626,6 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		}
 	}
 
-	restartServer := false
-
 	wg.Wait() // Wait for all custom watcher to finish before attempting reload.
 	if customWatcherTriggered.Load() {
 		// Custom watcher was triggered, apply custom action.
@@ -655,6 +653,10 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			log.Debugf("ignore change in generated templ txt: %s", e.Name)
 			return nil
 		}
+		if strings.HasSuffix(e.Name, ".templ") {
+			log.Debugf("ignore templ file change: %s", e.Name)
+			return nil
+		}
 		// No custom watcher triggered, follow default pipeline.
 		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
 			// A templ template is broken, don't continue.
@@ -667,15 +669,15 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			} else if !recompile {
 				log.Debugf("_templ.go change doesn't require recompilation")
 
-				// Don't browser reload tabs while the app server is restarting.
+				// Don't reload browser tabs while the app server is restarting.
 				if !rerunActive.Load() {
 					// Reload browser tabs when a _templ.go file has changed without
 					// changing its code structure (load from _templ.txt is possible).
 					h.reload.BroadcastNonblock()
 				}
+				return nil
 			} else {
 				log.Debugf("change in _templ.go requires recompilation")
-				restartServer = true
 			}
 		}
 	}
@@ -692,9 +694,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 				return
 			}
 
-			if restartServer {
-				chRunNewServer <- newBinaryPath
-			}
+			chRunNewServer <- newBinaryPath
 		})
 	})
 	return nil
