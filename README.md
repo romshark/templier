@@ -237,6 +237,7 @@ fish_add_path (pwd)/bin
 
 ### Important Considerations
 
+- Templiér currently doesn't support Windows.
 - When measuring performance, make sure you're not running against the Templiér proxy
   that injects the JavaScript for auto-reloading because it will be slower and should
   only be used for development. Instead, use the direct host address of your application
