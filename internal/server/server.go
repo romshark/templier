@@ -29,7 +29,7 @@ const (
 
 	// PathProxyEvents defines the path for templier proxy websocket events endpoint.
 	// This path is very unlikely to collide with any path used by the app server.
-	PathProxyEvents = "/_templiér/events"
+	PathProxyEvents = "/__templier/events"
 
 	ReverseProxyRetries         = 20
 	ReverseProxyInitialDelay    = 100 * time.Millisecond
@@ -52,26 +52,38 @@ type Server struct {
 	reverseProxy      *httputil.ReverseProxy
 }
 
+func MustRenderJSInjection(ctx context.Context, printJSDebugLogs bool) []byte {
+	var buf bytes.Buffer
+	err := jsInjection(printJSDebugLogs, PathProxyEvents).Render(ctx, &buf)
+	if err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+func RenderErrpage(
+	ctx context.Context, w io.Writer,
+	title string, content []Report,
+	printJSDebugLogs bool,
+) error {
+	return pageError(title, content, printJSDebugLogs, PathProxyEvents).Render(ctx, w)
+}
+
 func New(
 	httpClient *http.Client,
 	stateTracker *statetrack.Tracker,
 	reload *broadcaster.SignalBroadcaster,
 	config *config.Config,
 ) *Server {
-	var jsInjectionBuf bytes.Buffer
-	err := jsInjection(config.Log.PrintJSDebugLogs, PathProxyEvents).Render(
-		context.Background(), &jsInjectionBuf,
+	jsInjection := MustRenderJSInjection(
+		context.Background(), config.Log.PrintJSDebugLogs,
 	)
-	if err != nil {
-		panic(fmt.Errorf("rendering the live reload injection template: %w", err))
-	}
-	_, _ = jsInjectionBuf.Write(bytesBodyClosingTag)
 	s := &Server{
 		config:       config,
 		httpClient:   httpClient,
 		stateTracker: stateTracker,
 		reload:       reload,
-		jsInjection:  jsInjectionBuf.Bytes(),
+		jsInjection:  jsInjection,
 		webSocketUpgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -89,7 +101,7 @@ func New(
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == PathProxyEvents {
+	if r.Method == http.MethodGet && r.URL.Path == PathProxyEvents {
 		// This request comes from the injected JavaScript,
 		// Don't forward, handle it instead.
 		s.handleProxyEvents(w, r)
@@ -104,9 +116,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) modifyResponse(r *http.Response) error {
 	if r.Header.Get(HeaderTemplSkipModify) == "true" {
-		return nil
-	}
-	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		return nil
 	}
 
@@ -149,36 +158,34 @@ func (s *Server) modifyResponse(r *http.Response) error {
 		return err
 	}
 
-	// Inject JavaScript
-	var modified []byte
-	if !bytes.Contains(body, bytesBodyClosingTag) {
-		cp := make([]byte, len(s.jsInjection))
-		copy(cp, s.jsInjection)
-		modified = append(cp, body...)
-	} else {
-		modified = bytes.Replace(body, bytesBodyClosingTag, s.jsInjection, 1)
-	}
-
-	// Encode the response.
 	var buf bytes.Buffer
 	encw := newWriter(&buf)
-	_, err = encw.Write(modified)
-	if err != nil {
-		return err
-	}
-	err = encw.Close()
-	if err != nil {
+	if strings.HasPrefix(http.DetectContentType(body), "text/html") {
+		// Inject JavaScript
+		if err = WriteWithInjection(encw, body, s.jsInjection); err != nil {
+			return fmt.Errorf("injecting JS: %w", err)
+		}
+	} else if _, err := encw.Write(body); err != nil {
 		return err
 	}
 
-	// Update the response.
+	if err := encw.Close(); err != nil {
+		return err
+	}
+
+	// Update response body.
 	r.Body = io.NopCloser(&buf)
 	r.ContentLength = int64(buf.Len())
 	r.Header.Set("Content-Length", strconv.Itoa(buf.Len()))
 	return nil
 }
 
-var bytesBodyClosingTag = []byte("</body>")
+var (
+	bytesHeadClosingTag          = []byte("</head>")
+	bytesHeadClosingTagUppercase = []byte("</HEAD>")
+	bytesBodyClosingTag          = []byte("</body>")
+	bytesBodyClosingTagUppercase = []byte("</BODY>")
+)
 
 func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -294,8 +301,8 @@ func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
 		title = strconv.Itoa(len(reports)) + " errors"
 	}
 
-	comp := errpage(title, reports, s.config.Log.PrintJSDebugLogs, PathProxyEvents)
-	if err := comp.Render(r.Context(), w); err != nil {
+	err := RenderErrpage(r.Context(), w, title, reports, s.config.Log.PrintJSDebugLogs)
+	if err != nil {
 		panic(fmt.Errorf("rendering errpage: %w", err))
 	}
 }
@@ -359,4 +366,44 @@ func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 
 	return nil, fmt.Errorf("max retries reached: %q", r.URL.String())
+}
+
+// WriteWithInjection writes to w the body with the injection either at the end of the
+// head or at the end of the body. If neither the head nor the body closing tags are
+// the injection is written to w before body.
+func WriteWithInjection(
+	w io.Writer, body []byte, injection []byte,
+) error {
+	if bytes.Contains(body, bytesHeadClosingTag) {
+		// HEAD closing tag found, replace it.
+		modified := bytes.Replace(body, bytesHeadClosingTag,
+			append(injection, bytesHeadClosingTag...), 1)
+		_, err := w.Write(modified)
+		return err
+	} else if bytes.Contains(body, bytesHeadClosingTagUppercase) {
+		// Uppercase HEAD closing tag found, replace it.
+		modified := bytes.Replace(body, bytesHeadClosingTagUppercase,
+			append(injection, bytesHeadClosingTagUppercase...), 1)
+		_, err := w.Write(modified)
+		return err
+	} else if bytes.Contains(body, bytesBodyClosingTag) {
+		// BODY closing tag found, replace it.
+		modified := bytes.Replace(body, bytesBodyClosingTag,
+			append(injection, bytesBodyClosingTag...), 1)
+		_, err := w.Write(modified)
+		return err
+	} else if bytes.Contains(body, bytesBodyClosingTagUppercase) {
+		// Uppercase BODY closing tag found, replace it.
+		modified := bytes.Replace(body, bytesBodyClosingTagUppercase,
+			append(injection, bytesBodyClosingTagUppercase...), 1)
+		_, err := w.Write(modified)
+		return err
+	}
+
+	// Prepend the injection to the body.
+	if _, err := w.Write(injection); err != nil {
+		return err
+	}
+	_, err := w.Write(body)
+	return err
 }

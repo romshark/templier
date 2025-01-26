@@ -234,3 +234,12 @@ export PATH=$(pwd)/bin:$PATH
 ```fish
 fish_add_path (pwd)/bin
 ```
+
+### Important Considerations
+
+- When measuring performance, make sure you're not running against the Templiér proxy
+  that injects the JavaScript for auto-reloading because it will be slower and should
+  only be used for development. Instead, use the direct host address of your application
+  server specified by `app.host` in your `templier.yml` configuration.
+- Templiér's JavaScript injection uses the `GET /__templier/events` HTTP endpoint for
+  its websocket connection. Make sure it doesn't collide with your application's paths.
