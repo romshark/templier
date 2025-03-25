@@ -152,7 +152,7 @@ func (s *Server) modifyResponse(r *http.Response) error {
 	if err != nil {
 		return err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	body, err := io.ReadAll(encr)
 	if err != nil {
 		return err
@@ -201,7 +201,7 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 		internalErr(w, "upgrading to websocket", err)
 		return
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	notifyStateChange := make(chan struct{})
 	s.stateTracker.AddListener(notifyStateChange)
@@ -339,7 +339,7 @@ func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.Body.Close()
+		_ = r.Body.Close()
 	}
 
 	// Retry logic.

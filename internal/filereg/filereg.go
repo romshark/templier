@@ -39,7 +39,7 @@ func (r *Registry) Add(filePath string) (updated bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("opening file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	r.hasher.Reset()
 	if _, err := io.Copy(r.hasher, file); err != nil {

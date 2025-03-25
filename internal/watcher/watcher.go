@@ -148,7 +148,7 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 		return fmt.Errorf("registering files from base dir: %w", err)
 	}
 
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	for {
 		select {
 		case <-w.close:

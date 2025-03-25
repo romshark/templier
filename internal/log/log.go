@@ -67,15 +67,15 @@ func TemplierStarted(baseURL string) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " INFO: ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " INFO: ")
 	}
-	fmt.Fprint(out, "Templiér ")
-	fGreen.Fprint(out, "started")
-	fmt.Fprint(out, " on ")
-	fBlueUnderline.Fprintln(out, baseURL)
+	_, _ = fmt.Fprint(out, "Templiér ")
+	_, _ = fGreen.Fprint(out, "started")
+	_, _ = fmt.Fprint(out, " on ")
+	_, _ = fBlueUnderline.Fprintln(out, baseURL)
 }
 
 // TemplierRestartingServer prints the server restart trigger log to console.
@@ -85,13 +85,13 @@ func TemplierRestartingServer(cmdServerPath string) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " INFO: ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " INFO: ")
 	}
-	fmt.Fprint(out, "restarting ")
-	fGreen.Fprintln(out, cmdServerPath)
+	_, _ = fmt.Fprint(out, "restarting ")
+	_, _ = fGreen.Fprintln(out, cmdServerPath)
 }
 
 // TemplierFileChange prints a file change log to console.
@@ -101,15 +101,15 @@ func TemplierFileChange(e fsnotify.Event) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " INFO: ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " INFO: ")
 	}
-	fmt.Fprint(out, "file ")
-	fmt.Fprint(out, fileOpStr(e.Op))
-	fmt.Fprint(out, ": ")
-	fBlueUnderline.Fprintln(out, e.Name)
+	_, _ = fmt.Fprint(out, "file ")
+	_, _ = fmt.Fprint(out, fileOpStr(e.Op))
+	_, _ = fmt.Fprint(out, ": ")
+	_, _ = fBlueUnderline.Fprintln(out, e.Name)
 }
 
 // Debugf prints an info line to console.
@@ -119,11 +119,11 @@ func Debugf(f string, v ...any) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
-	fmt.Fprint(out, time.Now().Format(TimeFormat))
-	fmt.Fprint(out, " DEBUG: ")
-	fmt.Fprintf(out, f, v...)
-	fmt.Fprintln(out, "")
+	_, _ = fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+	_, _ = fmt.Fprint(out, " DEBUG: ")
+	_, _ = fmt.Fprintf(out, f, v...)
+	_, _ = fmt.Fprintln(out, "")
 }
 
 // WarnUnsupportedTemplVersion prints a warning line to console
@@ -134,15 +134,15 @@ func WarnUnsupportedTemplVersion(
 ) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
-	fYellow.Fprint(out, " WARNING: ")
-	fmt.Fprint(out, "Templier ")
-	fGreen.Fprintf(out, "v%s", templierVersion)
-	fmt.Fprint(out, " is optimized to work with templ ")
-	fGreen.Fprintf(out, "%s. ", supportedTemplVersion)
-	fmt.Fprint(out, "You're using templ ")
-	fGreen.Fprint(out, currentTemplVersion)
-	fmt.Fprintln(out, ". This can lead to unexpected behavior!")
+	_, _ = fmt.Fprint(out, LinePrefix)
+	_, _ = fYellow.Fprint(out, " WARNING: ")
+	_, _ = fmt.Fprint(out, "Templier ")
+	_, _ = fGreen.Fprintf(out, "v%s", templierVersion)
+	_, _ = fmt.Fprint(out, " is optimized to work with templ ")
+	_, _ = fGreen.Fprintf(out, "%s. ", supportedTemplVersion)
+	_, _ = fmt.Fprint(out, "You're using templ ")
+	_, _ = fGreen.Fprint(out, currentTemplVersion)
+	_, _ = fmt.Fprintln(out, ". This can lead to unexpected behavior!")
 }
 
 // Infof prints an info line to console.
@@ -152,41 +152,41 @@ func Infof(f string, v ...any) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " INFO: ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " INFO: ")
 	}
-	fmt.Fprintf(out, f, v...)
-	fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintf(out, f, v...)
+	_, _ = fmt.Fprintln(out, "")
 }
 
 // Errorf prints an error line to console.
 func Error(msg string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "ERR: ")
-	fmt.Fprint(out, msg)
-	fmt.Fprintln(out, "")
+	_, _ = fRed.Fprint(out, "ERR: ")
+	_, _ = fmt.Fprint(out, msg)
+	_, _ = fmt.Fprintln(out, "")
 }
 
 // Errorf is similar to Error but with formatting.
 func Errorf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "ERR: ")
-	fmt.Fprintf(out, f, v...)
-	fmt.Fprintln(out, "")
+	_, _ = fRed.Fprint(out, "ERR: ")
+	_, _ = fmt.Fprintf(out, f, v...)
+	_, _ = fmt.Fprintln(out, "")
 }
 
 // FatalCmdNotAvailable prints an error line to console about
@@ -195,17 +195,17 @@ func Errorf(f string, v ...any) {
 func FatalCmdNotAvailable(cmd, helpURL string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "ERR: ")
-	fmt.Fprint(out, "it appears ")
-	fGreen.Fprint(out, cmd)
-	fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n See:")
-	fBlueUnderline.Fprint(out, helpURL)
-	fmt.Fprintln(out, "")
+	_, _ = fRed.Fprint(out, "ERR: ")
+	_, _ = fmt.Fprint(out, "it appears ")
+	_, _ = fGreen.Fprint(out, cmd)
+	_, _ = fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n See:")
+	_, _ = fBlueUnderline.Fprint(out, helpURL)
+	_, _ = fmt.Fprintln(out, "")
 	os.Exit(1)
 }
 
@@ -215,19 +215,19 @@ func FatalCmdNotAvailable(cmd, helpURL string) {
 func FatalCustomWatcherCmdNotAvailable(cmd, customWatcherName string) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "ERR: ")
-	fmt.Fprint(out, "it appears ")
-	fGreen.Fprint(out, cmd)
-	fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n")
-	fmt.Fprint(out, "This command is required by custom watcher ")
-	fBlue.Fprint(out, customWatcherName)
-	fmt.Fprintln(out, ".")
-	fmt.Fprintln(out, "")
+	_, _ = fRed.Fprint(out, "ERR: ")
+	_, _ = fmt.Fprint(out, "it appears ")
+	_, _ = fGreen.Fprint(out, cmd)
+	_, _ = fmt.Fprintf(out, " isn't installed on your system or is not in your PATH.\n")
+	_, _ = fmt.Fprint(out, "This command is required by custom watcher ")
+	_, _ = fBlue.Fprint(out, customWatcherName)
+	_, _ = fmt.Fprintln(out, ".")
+	_, _ = fmt.Fprintln(out, "")
 	os.Exit(1)
 }
 
@@ -235,14 +235,14 @@ func FatalCustomWatcherCmdNotAvailable(cmd, customWatcherName string) {
 func Fatalf(f string, v ...any) {
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, " ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, " ")
 	}
-	fRed.Fprint(out, "FATAL: ")
-	fmt.Fprintf(out, f, v...)
-	fmt.Fprintln(out, "")
+	_, _ = fRed.Fprint(out, "FATAL: ")
+	_, _ = fmt.Fprintf(out, f, v...)
+	_, _ = fmt.Fprintln(out, "")
 	os.Exit(1)
 }
 
@@ -253,15 +253,15 @@ func Durf(msg string, d time.Duration) {
 	}
 	lock.Lock()
 	defer lock.Unlock()
-	fmt.Fprint(out, LinePrefix)
+	_, _ = fmt.Fprint(out, LinePrefix)
 	if Level() >= LogLevelDebug {
-		fmt.Fprint(out, time.Now().Format(TimeFormat))
-		fmt.Fprint(out, ": ")
+		_, _ = fmt.Fprint(out, time.Now().Format(TimeFormat))
+		_, _ = fmt.Fprint(out, ": ")
 	}
-	fmt.Fprint(out, msg)
-	fmt.Fprint(out, " (")
-	fRed.Fprint(out, durStr(d))
-	fmt.Fprintln(out, ")")
+	_, _ = fmt.Fprint(out, msg)
+	_, _ = fmt.Fprint(out, " (")
+	_, _ = fRed.Fprint(out, durStr(d))
+	_, _ = fmt.Fprintln(out, ")")
 }
 
 func durStr(d time.Duration) string {

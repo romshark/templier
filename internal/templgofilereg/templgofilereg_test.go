@@ -16,14 +16,14 @@ func overwriteFile(srcPath, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	// Open the destination file with truncation
 	destFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer func() { _ = destFile.Close() }()
 
 	// Copy the contents
 	_, err = io.Copy(destFile, srcFile)

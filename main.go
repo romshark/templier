@@ -467,7 +467,7 @@ func runAppLauncher(
 			}
 			resp, err := healthCheckClient.Do(r)
 			if err == nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				log.Debugf("health check: OK, " +
 					"app server is ready to receive requests")
 				break // Server is ready to receive requests
