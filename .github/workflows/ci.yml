@@ -12,21 +12,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Test
-      - name: Test
-        run: go test -v -race ./...
-      - name: Calculate coverage
-        run: go test -v -covermode=count -coverprofile=coverage.out
-      - name: Convert coverage.out to coverage.lcov
-        uses: jandelgado/gcov2lcov-action@v1.1.1
-      - name: Coveralls
-        uses: coverallsapp/github-action@master
+      # Test and report coverage
+      - name: Run tests with coverage
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.6
         with:
-          github-token: ${{ secrets.github_token }}
-          path-to-lcov: coverage.lcov
-      - name: Run go vet
-        continue-on-error: true
-        run: go vet ./...
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: coverage.out
 
       # Make sure templ generate was executed before commit
       - name: Generate templates
