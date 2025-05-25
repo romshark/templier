@@ -182,7 +182,7 @@ type ConfigCustomWatcher struct {
 	FailOnError bool `yaml:"fail-on-error"`
 
 	// Debounce defines how long to wait for more file changes
-	// after the first one occured before executing cmd.
+	// after the first one occurred before executing cmd.
 	// Default debounce duration is applied if left empty.
 	Debounce time.Duration `yaml:"debounce"`
 
