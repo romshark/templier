@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	Version               = "0.10.12"
-	SupportedTemplVersion = "v0.3.898"
+	Version               = "0.10.13"
+	SupportedTemplVersion = "v0.3.906"
 )
 
 var config Config
