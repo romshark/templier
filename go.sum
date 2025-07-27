@@ -1,7 +1,7 @@
 github.com/a-h/parse v0.0.0-20250122154542-74294addb73e h1:HjVbSQHy+dnlS6C3XajZ69NYAb5jbGNfHanvm1+iYlo=
 github.com/a-h/parse v0.0.0-20250122154542-74294addb73e/go.mod h1:3mnrkvGpurZ4ZrTDbYU84xhwXW2TjTKShSwjRi2ihfQ=
-github.com/a-h/templ v0.3.920 h1:IQjjTu4KGrYreHo/ewzSeS8uefecisPayIIc9VflLSE=
-github.com/a-h/templ v0.3.920/go.mod h1:FFAu4dI//ESmEN7PQkJ7E7QfnSEMdcnu7QrAY8Dn334=
+github.com/a-h/templ v0.3.924 h1:t5gZqTneXqvehpNZsgtnlOscnBboNh9aASBH2MgV/0k=
+github.com/a-h/templ v0.3.924/go.mod h1:FFAu4dI//ESmEN7PQkJ7E7QfnSEMdcnu7QrAY8Dn334=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=

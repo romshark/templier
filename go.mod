@@ -3,7 +3,7 @@ module github.com/romshark/templier
 go 1.24.5
 
 require (
-	github.com/a-h/templ v0.3.920
+	github.com/a-h/templ v0.3.924
 	github.com/andybalholm/brotli v1.2.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fatih/color v1.18.0
