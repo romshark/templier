@@ -404,6 +404,7 @@ func runAppLauncher(
 		if conf.App.Flags != nil {
 			c.Args = append(c.Args, conf.App.Flags...)
 		}
+		c.Dir = conf.App.DirWork
 
 		// Enable templ's development mode to read from .txt
 		// for faster reloads without recompilation.
@@ -732,7 +733,7 @@ func buildServer(
 
 	args := append([]string{"build"}, conf.CompilerFlags()...)
 	args = append(args, "-o", binaryPath, conf.App.DirCmd)
-	buf, err := cmdrun.Run(ctx, conf.App.DirWork, conf.CompilerEnv(), "go", args...)
+	buf, err := cmdrun.Run(ctx, "", conf.CompilerEnv(), "go", args...)
 	if errors.Is(ctx.Err(), context.Canceled) {
 		log.Debugf("go build cmd aborted")
 		return // No need to check errors and continue.
