@@ -25,6 +25,7 @@ import (
 
 const (
 	HeaderHXRequest       = "HX-Request"
+	HeaderDatastarRequest = "Datastar-Request"
 	HeaderTemplSkipModify = "templ-skip-modify"
 
 	// PathProxyEvents defines the path for templier proxy websocket events endpoint.
@@ -324,10 +325,10 @@ func (rt *roundTripper) setShouldSkipResponseModificationHeader(
 ) {
 	// Instruct the modifyResponse function to skip modifying the response if the
 	// HTTP request has come from HTMX.
-	if r.Header.Get(HeaderHXRequest) != "true" {
-		return
+	if r.Header.Get(HeaderHXRequest) == "true" ||
+		r.Header.Get(HeaderDatastarRequest) == "true" {
+		resp.Header.Set(HeaderTemplSkipModify, "true")
 	}
-	resp.Header.Set(HeaderTemplSkipModify, "true")
 }
 
 func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
