@@ -428,9 +428,7 @@ func runAppLauncher(
 
 		var exitCode atomic.Int32
 		exitCode.Store(-1)
-		waitExit.Add(1)
-		go func() {
-			defer waitExit.Done()
+		waitExit.Go(func() {
 			err := c.Wait()
 			if err == nil {
 				return
@@ -442,7 +440,7 @@ func runAppLauncher(
 			}
 			// Some other error occurred
 			log.Errorf("health check: waiting for process: %v", err)
-		}()
+		})
 
 		const maxRetries = 100
 		for retry := 0; ; retry++ {
@@ -764,20 +762,16 @@ func lintAndBuildServer(
 	}
 	var wg sync.WaitGroup
 	if conf.Lint {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runGolangCILint(ctx, st, conf)
-		}()
+		})
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		newBinaryPath = buildServer(ctx, st, conf, outBasePath)
 		if newBinaryPath != "" {
 			log.Debugf("new app server binary: %s", newBinaryPath)
 		}
-	}()
+	})
 	wg.Wait() // Wait for build and lint to finish.
 	return newBinaryPath
 }

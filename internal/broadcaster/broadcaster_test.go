@@ -17,7 +17,6 @@ func TestBroadcast(t *testing.T) {
 	require.Equal(t, 0, b.Len())
 
 	var wg sync.WaitGroup
-	wg.Add(2)
 	var prepare sync.WaitGroup
 	prepare.Add(2)
 	var removed sync.WaitGroup
@@ -25,8 +24,7 @@ func TestBroadcast(t *testing.T) {
 
 	var counter atomic.Int32
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		c := make(chan struct{}, 1)
 		b.AddListener(c)
 		prepare.Done()
@@ -34,10 +32,9 @@ func TestBroadcast(t *testing.T) {
 		counter.Add(1)
 		b.RemoveListener(c)
 		removed.Done()
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		c := make(chan struct{}, 1)
 		b.AddListener(c)
 		prepare.Done()
@@ -45,7 +42,7 @@ func TestBroadcast(t *testing.T) {
 		counter.Add(1)
 		b.RemoveListener(c)
 		removed.Done()
-	}()
+	})
 
 	prepare.Wait()
 	require.Equal(t, 2, b.Len())
