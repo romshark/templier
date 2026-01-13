@@ -50,21 +50,33 @@ func RunTemplFmt(ctx context.Context, workDir string, path string) error {
 	return cmd.Run()
 }
 
+type TemplChange int8
+
+const (
+	_ TemplChange = iota
+	TemplChangeNeedsRestart
+	TemplChangeNeedsBrowserReload
+)
+
 // RunTemplWatch starts `templ generate --log-level debug --watch` and reads its
 // stdout pipe for failure and success logs updating the state accordingly.
 // When ctx is canceled the interrupt signal is sent to the watch process
 // and graceful shutdown is awaited.
-func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) error {
+func RunTemplWatch(
+	ctx context.Context,
+	workDir string,
+	st *statetrack.Tracker,
+	templChange chan<- TemplChange,
+) error {
 	// Don't use CommandContext since it will kill the process
 	// which we don't want. We want the command to finish.
 	cmd := exec.Command(
 		"templ", "generate",
 		"--watch",
 		"--log-level", "debug",
-		"--open-browser=false",
 		// Disable Templ's new native Go watcher to avoid any collisions
 		// since Templier is already watching .go file changes.
-		"--watch-pattern", `(.+\.templ$)|(.+_templ\.txt$)`,
+		"--watch-pattern", `(.+\.templ$)`,
 	)
 	cmd.Dir = workDir
 
@@ -93,6 +105,20 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 			case bytes.HasPrefix(b, bytesPrefixErrCleared):
 				st.Set(statetrack.IndexTempl, "")
 			}
+			if after, found := bytes.CutPrefix(b, bytesPrefixPostGenEvent); found {
+				switch {
+				case bytes.Contains(after, bytesNeedsRestart):
+					select {
+					case templChange <- TemplChangeNeedsRestart:
+					default:
+					}
+				case bytes.Contains(after, bytesNeedsBrowserReload):
+					select {
+					case templChange <- TemplChangeNeedsBrowserReload:
+					default:
+					}
+				}
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			log.Errorf("scanning templ watch output: %v", err)
@@ -115,7 +141,10 @@ func RunTemplWatch(ctx context.Context, workDir string, st *statetrack.Tracker) 
 }
 
 var (
-	bytesPrefixWarning    = []byte(`(!)`)
-	bytesPrefixErr        = []byte(`(✗)`)
-	bytesPrefixErrCleared = []byte(`(✓) Error cleared`)
+	bytesPrefixWarning      = []byte(`(!)`)
+	bytesPrefixErr          = []byte(`(✗)`)
+	bytesPrefixErrCleared   = []byte(`(✓) Error cleared`)
+	bytesPrefixPostGenEvent = []byte(`(✓) Post-generation event received, processing...`)
+	bytesNeedsRestart       = []byte(`needsRestart=true`)
+	bytesNeedsBrowserReload = []byte(`needsBrowserReload=true`)
 )

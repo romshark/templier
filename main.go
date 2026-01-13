@@ -26,11 +26,9 @@ import (
 	"github.com/romshark/templier/internal/config"
 	"github.com/romshark/templier/internal/ctxrun"
 	"github.com/romshark/templier/internal/debounce"
-	"github.com/romshark/templier/internal/fswalk"
 	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/server"
 	"github.com/romshark/templier/internal/statetrack"
-	"github.com/romshark/templier/internal/templgofilereg"
 	"github.com/romshark/templier/internal/watcher"
 	"golang.org/x/sync/errgroup"
 
@@ -42,7 +40,7 @@ const ServerHealthPreflightWaitInterval = 100 * time.Millisecond
 
 var (
 	// rerunActive indicates whether the currently running app server
-	// is being restarted. The appLauncher
+	// is being restarted.
 	rerunActive atomic.Bool
 
 	chRerunServer  = make(chan struct{}, 1)
@@ -131,17 +129,23 @@ func main() {
 	errgrp, ctx := errgroup.WithContext(ctx)
 	var wg sync.WaitGroup
 
+	// A buffer of 64 allows up to 64 change signals to pile up
+	// before the notifier starts dropping updates.
+	templChange := make(chan cmdrun.TemplChange, 64)
+
 	wg.Add(1)
 	errgrp.Go(func() error {
 		defer wg.Done()
 		// Run templ in watch mode to create debug components.
-		// Once ctx is canceled templ will write production output and exit.
-		err := cmdrun.RunTemplWatch(ctx, conf.App.DirSrcRootAbsolute(), st)
+		// Once ctx is canceled templ generate watch will exit.
+		err := cmdrun.RunTemplWatch(
+			ctx, conf.App.DirSrcRootAbsolute(), st, templChange,
+		)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			err = fmt.Errorf("running 'templ generate --watch': %w", err)
+			err = fmt.Errorf("running templ generate watch mode: %w", err)
 			log.Error(err.Error())
 		}
-		log.Debugf("'templ generate --watch' stopped")
+		log.Debugf("templ generate watch stopped")
 		return err
 	})
 
@@ -223,34 +227,14 @@ func main() {
 		chRunNewServer <- binaryFile
 	}
 
-	// Collect all _templ.go files and add them to the registry
-	templGoFileReg := templgofilereg.New()
-	if currentWorkingDir, err := os.Getwd(); err != nil {
-		log.Errorf("getting current working directory: %v", err)
-	} else {
-		if err := fswalk.Files(currentWorkingDir, func(name string) error {
-			if !strings.HasSuffix(name, "_templ.go") {
-				return nil
-			}
-			if _, err := templGoFileReg.Compare(name); err != nil {
-				log.Errorf("registering generated templ Go file: %q: %v", name, err)
-			}
-			log.Debugf("registered existing generated templ Go file: %q", name)
-			return nil
-		}); err != nil {
-			log.Errorf("collecting existing _templ.go files: %v", err)
-		}
-	}
-
 	onChangeHandler := FileChangeHandler{
-		binaryOutBasePath:   tempDirPath,
-		customWatchers:      customWatchers,
-		stateTracker:        st,
-		reload:              reload,
-		debounced:           debounced,
-		conf:                conf,
-		templGoFileRegistry: templGoFileReg,
-		buildRunner:         ctxrun.New(),
+		binaryOutBasePath: tempDirPath,
+		customWatchers:    customWatchers,
+		stateTracker:      st,
+		reload:            reload,
+		debounced:         debounced,
+		conf:              conf,
+		buildRunner:       ctxrun.New(),
 	}
 
 	onChangeHandler.watchBasePath, err = filepath.Abs(conf.App.DirWork)
@@ -263,6 +247,27 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("initializing file watcher: %w", err))
 	}
+
+	wg.Add(1)
+	errgrp.Go(func() error {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case c := <-templChange:
+				switch c {
+				case cmdrun.TemplChangeNeedsRestart:
+					onChangeHandler.recompile(ctx, fsnotify.Event{})
+				case cmdrun.TemplChangeNeedsBrowserReload:
+					// Don't reload browser tabs while the app server is restarting.
+					if !rerunActive.Load() {
+						reload.BroadcastNonblock()
+					}
+				}
+			}
+		}
+	})
 
 	for _, expr := range conf.App.Exclude {
 		if err := watcher.Ignore(expr); err != nil {
@@ -524,25 +529,20 @@ func runAppLauncher(
 }
 
 type FileChangeHandler struct {
-	binaryOutBasePath   string
-	watchBasePath       string
-	customWatchers      []customWatcher
-	stateTracker        *statetrack.Tracker
-	reload              *broadcaster.SignalBroadcaster
-	debounced           func(fn func())
-	conf                *config.Config
-	templGoFileRegistry *templgofilereg.Comparer
-	buildRunner         *ctxrun.Runner
+	binaryOutBasePath string
+	watchBasePath     string
+	customWatchers    []customWatcher
+	stateTracker      *statetrack.Tracker
+	reload            *broadcaster.SignalBroadcaster
+	debounced         func(fn func())
+	conf              *config.Config
+	buildRunner       *ctxrun.Runner
 }
 
 func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error {
-	switch e.Op {
-	case fsnotify.Chmod:
+	if e.Op == fsnotify.Chmod {
 		log.Debugf("ignoring file operation (%s): %q", e.Op.String(), e.Name)
 		return nil // Ignore chmod events.
-	case fsnotify.Remove:
-		// No need to check for _templ.go suffix, Remove is a no-op for other files.
-		h.templGoFileRegistry.Remove(e.Name)
 	}
 
 	if h.conf.Log.ClearOn == config.LogClearOnFileChange {
@@ -562,7 +562,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 	if h.conf.Format {
 		if strings.HasSuffix(e.Name, ".templ") {
 			log.Debugf("format templ file %s", e.Name)
-			err := cmdrun.RunTemplFmt(context.Background(), h.conf.App.DirWork, e.Name)
+			err := cmdrun.RunTemplFmt(ctx, h.conf.App.DirWork, e.Name)
 			if err != nil {
 				log.Errorf("templ formatting error: %v", err)
 			}
@@ -648,10 +648,6 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 		}
 	} else {
 		log.Debugf("custom watchers: no watcher triggered")
-		if strings.HasSuffix(e.Name, "_templ.txt") {
-			log.Debugf("ignore change in generated templ txt: %s", e.Name)
-			return nil
-		}
 		if strings.HasSuffix(e.Name, ".templ") {
 			log.Debugf("ignore templ file change: %s", e.Name)
 			return nil
@@ -661,29 +657,23 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			// A templ template is broken, don't continue.
 			return nil
 		}
-		if strings.HasSuffix(e.Name, "_templ.go") {
-			if recompile, err := h.templGoFileRegistry.Compare(e.Name); err != nil {
-				log.Errorf("checking generated templ go file: %v", err)
-				return nil
-			} else if !recompile {
-				log.Debugf("_templ.go change doesn't require recompilation")
-
-				// Don't reload browser tabs while the app server is restarting.
-				if !rerunActive.Load() {
-					// Reload browser tabs when a _templ.go file has changed without
-					// changing its code structure (load from _templ.txt is possible).
-					h.reload.BroadcastNonblock()
-				}
-				return nil
-			} else {
-				log.Debugf("change in _templ.go requires recompilation")
-			}
-		}
+	}
+	if strings.HasSuffix(e.Name, "_templ.go") {
+		// Ignore _templ.go files; templ runner will recompile when necessary.
+		log.Debugf("ignore _templ.go file change: %s", e.Name)
+		return nil
 	}
 
+	h.recompile(ctx, e)
+	return nil
+}
+
+func (h *FileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 	h.debounced(func() {
-		log.TemplierFileChange(e)
-		h.buildRunner.Go(context.Background(), func(ctx context.Context) {
+		if e.Op != 0 {
+			log.TemplierFileChange(e)
+		}
+		h.buildRunner.Go(ctx, func(ctx context.Context) {
 			newBinaryPath := lintAndBuildServer(
 				ctx, h.stateTracker, h.conf, h.binaryOutBasePath,
 			)
@@ -696,7 +686,6 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 			chRunNewServer <- newBinaryPath
 		})
 	})
-	return nil
 }
 
 func runGolangCILint(ctx context.Context, st *statetrack.Tracker, conf *config.Config) {

@@ -11,17 +11,11 @@
 
 Templiér is a Go web frontend development environment for
 [Templ](https://github.com/a-h/templ)
+that behaves similar to templ's native
+[`--watch`](https://templ.guide/developer-tools/live-reload/) mode but provides
+more functionality and reports all errors directly to all open browser tabs ✨.
 
-- Watches your `.templ` files and rebuilds them.
-- Watches all non-template files, rebuilds and restarts the server ✨.
-- Automatically reloads your browser tabs when the server restarts or templates change.
-- Runs [golangci-lint](https://golangci-lint.run/) if enabled.
-- Reports all errors directly to all open browser tabs ✨.
-- Shuts your server down gracefully.
-- Displays application server console logs in the terminal.
-- Supports templ's debug mode for fast live reload.
-- Avoids reloading when files didn't change by keeping track of checksums.
-- Allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
+Templiér allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
   - example: [Bundle JavaScript](#custom-watcher-example-javascript-bundler)
   - example: [Rebuild CSS](#custom-watcher-example-tailwindcss-and-postcss)
   - example: [Restart on config change](#custom-watcher-example-reload-on-config-change)
@@ -172,7 +166,7 @@ NOTE: if your `dist.css` is embedded, you may need to use `requires: rebuild`.
 ### Custom Watcher Example: Reload on config change.
 
 Normally, Templiér rebuilds and restarts the server when any file changes (except for
-`.templ` and `_templ.txt` files). However, when a config file changes we don't usually
+`.templ` files). However, when a config file changes we don't usually
 require rebuilding the server. Restarting the server may be sufficient in this case:
 
 ```yaml
@@ -199,7 +193,6 @@ set to `app.dir-work`. When necessary, the application server process is shut do
 gracefully, rebuilt, linted and restarted.
 On `.templ` file changes Templiér only tries to compile and lint the server code
 without refreshing the page.
-On `_templ.txt` file changes Templiér refreshes the page.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
 all requests to the application server process that it launched injecting Templiér
