@@ -25,6 +25,7 @@ import (
 type Watcher struct {
 	lock         sync.Mutex
 	runnerStart  sync.WaitGroup
+	closeOnce    sync.Once
 	baseDir      string
 	fileRegistry *filereg.Registry
 	watchedDirs  map[string]struct{}
@@ -73,6 +74,10 @@ var (
 	ErrRunning = errors.New("watcher is already running")
 )
 
+func (w *Watcher) signalClose() {
+	w.closeOnce.Do(func() { close(w.close) })
+}
+
 // WaitRunning blocks and returns once the watcher is running.
 // Returns immediately if the watcher is closed or running.
 func (w *Watcher) WaitRunning() {
@@ -107,10 +112,11 @@ func (w *Watcher) RangeWatchedDirs(fn func(path string) (continueIter bool)) {
 func (w *Watcher) Close() error {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if w.state != stateRunning || w.state == stateClosed {
+	if w.state == stateClosed {
 		return nil
 	}
-	close(w.close)
+	w.state = stateClosed
+	w.signalClose()
 	return w.watcher.Close()
 }
 
@@ -152,14 +158,11 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 	for {
 		select {
 		case <-w.close:
-			w.lock.Lock()
-			w.state = stateClosed
-			w.lock.Unlock()
 			return ErrClosed // Close called
 		case <-ctx.Done():
 			w.lock.Lock()
-			close(w.close)
 			w.state = stateClosed
+			w.signalClose()
 			w.lock.Unlock()
 			return ctx.Err() // Watching canceled
 		case e := <-w.watcher.Events:
@@ -178,52 +181,59 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 }
 
 func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
+	// Do internal state updates under the lock.
 	w.lock.Lock()
-	defer w.lock.Unlock()
 
 	if err := w.isExluded(e.Name); err != nil {
+		w.lock.Unlock()
 		if err == errExcluded {
 			return nil // Object is excluded from watcher, don't notify
 		}
 		return fmt.Errorf("isExluded: %w", err)
 	}
+
 	if w.isDirEvent(e) {
 		switch e.Op {
 		case fsnotify.Create:
 			// New sub-directory was created, start watching it.
 			if err := w.add(e.Name); err != nil {
+				w.lock.Unlock()
 				return fmt.Errorf("adding created directory: %w", err)
 			}
 		case fsnotify.Remove, fsnotify.Rename:
 			// Sub-directory was removed or renamed, stop watching it.
 			// A new create notification will readd it.
 			if err := w.remove(e.Name); err != nil {
+				w.lock.Unlock()
 				return fmt.Errorf("removing directory: %w", err)
 			}
 		}
 	} else if e.Op == fsnotify.Write || e.Op == fsnotify.Create {
-		// A file was created.
 		updated, err := w.fileRegistry.Add(e.Name)
 		if err != nil {
+			w.lock.Unlock()
 			// Ignore not exist errors since those are usually triggered
 			// by tools creating and deleting temporary files so quickly that
 			// the watcher sees a file change but isn't fast enough to read it.
 			if errors.Is(err, fs.ErrNotExist) {
-				log.Errorf("adding created file (%q) to registry: %v",
-					e.Name, err)
+				log.Errorf("adding created file (%q) to registry: %v", e.Name, err)
 				return nil
 			}
-			return fmt.Errorf("adding created file (%q) to registry: %w",
-				e.Name, err)
+			return fmt.Errorf("adding created file (%q) to registry: %w", e.Name, err)
 		}
 		if !updated { // File checksum hasn't changed, ignore event.
+			w.lock.Unlock()
 			return nil
 		}
 	} else if e.Op == fsnotify.Rename || e.Op == fsnotify.Remove {
-		// A file was (re)moved.
 		w.fileRegistry.Remove(e.Name)
 	}
-	return w.onChange(ctx, e)
+
+	onChange := w.onChange
+	w.lock.Unlock()
+
+	// Callback MUST be outside the lock (can block).
+	return onChange(ctx, e)
 }
 
 // Ignore adds an ignore glob filter and removes all currently
@@ -328,10 +338,11 @@ func (w *Watcher) remove(dir string) error {
 	}
 
 	// Stop all sub-directory watchers
+	prefix := dir + string(os.PathSeparator)
 	for p := range w.watchedDirs {
-		if strings.HasPrefix(p, dir) {
+		if strings.HasPrefix(p, prefix) {
 			delete(w.watchedDirs, p)
-			if err := w.removeWatcher(dir); err != nil {
+			if err := w.removeWatcher(p); err != nil {
 				return err
 			}
 		}
