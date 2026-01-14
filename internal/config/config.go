@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	Version               = "0.10.22"
+	Version               = "0.10.23"
 	SupportedTemplVersion = "v0.3.977"
 )
 
@@ -53,7 +53,7 @@ type Config struct {
 
 	// TemplierHost is the Templiér HTTP server host address.
 	// Example: "127.0.0.1:9999".
-	TemplierHost string `yaml:"templier-host" validate:"url,required"`
+	TemplierHost string `yaml:"templier-host" validate:"hostname_port,required"`
 
 	// TLS is optional, will serve HTTP instead of HTTPS if nil.
 	TLS *struct {
