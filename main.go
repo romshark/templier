@@ -559,7 +559,7 @@ func (h *FileChangeHandler) Handle(ctx context.Context, e fsnotify.Event) error 
 
 	log.Debugf("handling file operation (%s): %q", e.Op.String(), relativeFileName)
 
-	if h.conf.Format {
+	if h.conf.Format && e.Op != fsnotify.Remove && e.Op != fsnotify.Rename {
 		if strings.HasSuffix(e.Name, ".templ") {
 			log.Debugf("format templ file %s", e.Name)
 			err := cmdrun.RunTemplFmt(ctx, h.conf.App.DirWork, e.Name)
