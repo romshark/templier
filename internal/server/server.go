@@ -120,6 +120,11 @@ func (s *Server) modifyResponse(r *http.Response) error {
 		return nil
 	}
 
+	// Skip modification if Content-Type is text/event-stream (SSE)
+	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
+		return nil
+	}
+
 	// Set up readers and writers.
 	newReader := func(in io.Reader) (out io.Reader, err error) {
 		return in, nil
