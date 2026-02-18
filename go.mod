@@ -5,10 +5,10 @@ go 1.26.0
 require (
 	github.com/a-h/templ v0.3.977
 	github.com/andybalholm/brotli v1.2.0
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/gobwas/glob v0.2.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/romshark/yamagiconf v1.0.4
 	github.com/stretchr/testify v1.11.1

@@ -2,6 +2,7 @@ package watcher_test
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -213,7 +214,7 @@ func eventsMustContain(t *testing.T, set []fsnotify.Event, contains fsnotify.Eve
 
 func TestWatcherRunCancelContext(t *testing.T) {
 	base := t.TempDir()
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) error {
+	w, err := watcher.New(base, slog.Default(), func(ctx context.Context, e fsnotify.Event) error {
 		return nil
 	})
 	require.NoError(t, err)
@@ -296,7 +297,7 @@ func TestWatcherIgnore(t *testing.T) {
 	var lock sync.Mutex
 	var events []fsnotify.Event
 
-	w, err := watcher.New(base, func(ctx context.Context, e fsnotify.Event) error {
+	w, err := watcher.New(base, slog.Default(), func(ctx context.Context, e fsnotify.Event) error {
 		lock.Lock()
 		events = append(events, e)
 		lock.Unlock()
@@ -429,7 +430,7 @@ func runNewWatcher(
 	t *testing.T, baseDir string, notify chan<- fsnotify.Event,
 ) *watcher.Watcher {
 	t.Helper()
-	w, err := watcher.New(baseDir, func(ctx context.Context, e fsnotify.Event) error {
+	w, err := watcher.New(baseDir, slog.Default(), func(ctx context.Context, e fsnotify.Event) error {
 		if notify != nil {
 			notify <- e
 		}

@@ -6,10 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 
-	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/statetrack"
 )
 
@@ -18,7 +18,9 @@ var ErrExitCode1 = errors.New("exit code 1")
 // Run runs an arbitrary command and returns (output, ErrExitCode1)
 // if it exits with error code 1, otherwise returns the original error.
 func Run(
-	ctx context.Context, workDir string, envVars []string, cmd string, args ...string,
+	ctx context.Context, workDir string, envVars []string,
+	logger *slog.Logger,
+	cmd string, args ...string,
 ) (out []byte, err error) {
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = workDir
@@ -27,10 +29,10 @@ func Run(
 		c.Env = append(os.Environ(), envVars...)
 	}
 
-	log.Debugf("running command: %s", c.String())
+	logger.Debug("running command", "cmd", c.String())
 	out, err = c.CombinedOutput()
 	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
-		log.Debugf("running command (pid: %d): exited with exit code 1", c.Process.Pid)
+		logger.Debug("command exited with code 1", "pid", c.Process.Pid)
 		return out, ErrExitCode1
 	} else if err != nil {
 		return nil, err
@@ -39,8 +41,8 @@ func Run(
 }
 
 // Sh runs an arbitrary shell script and behaves similar to Run.
-func Sh(ctx context.Context, workDir string, sh string) (out []byte, err error) {
-	return Run(ctx, workDir, nil, "sh", "-c", sh)
+func Sh(ctx context.Context, workDir string, logger *slog.Logger, sh string) (out []byte, err error) {
+	return Run(ctx, workDir, nil, logger, "sh", "-c", sh)
 }
 
 // RunTemplFmt runs `templ fmt <path>`.
@@ -65,6 +67,7 @@ const (
 func RunTemplWatch(
 	ctx context.Context,
 	workDir string,
+	logger *slog.Logger,
 	st *statetrack.Tracker,
 	templChange chan<- TemplChange,
 ) error {
@@ -85,7 +88,7 @@ func RunTemplWatch(
 		return fmt.Errorf("obtaining stdout pipe: %w", err)
 	}
 
-	log.Debugf("starting a-h/templ in the background: %s", cmd.String())
+	logger.Debug("starting a-h/templ in the background", "cmd", cmd.String())
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting: %w", err)
 	}
@@ -96,7 +99,7 @@ func RunTemplWatch(
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			b := scanner.Bytes()
-			log.Debugf("templ: %s", string(b))
+			logger.Debug("templ", "output", string(b))
 			switch {
 			case bytes.HasPrefix(b, bytesPrefixWarning):
 				st.Set(statetrack.IndexTempl, scanner.Text())
@@ -121,7 +124,7 @@ func RunTemplWatch(
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			log.Errorf("scanning templ watch output: %v", err)
+			logger.Error("scanning templ watch output", "err", err)
 		}
 		done <- cmd.Wait()
 	}()

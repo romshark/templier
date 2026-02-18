@@ -14,7 +14,7 @@ func TestDurStr(t *testing.T) {
 	f := func(input time.Duration, expect string) {
 		t.Helper()
 		fmt.Println(input.String())
-		require.Equal(t, expect, durStr(input))
+		require.Equal(t, expect, DurStr(input))
 	}
 
 	// Don't show decimal places

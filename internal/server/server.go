@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/romshark/templier/internal/broadcaster"
-	"github.com/romshark/templier/internal/config"
-	"github.com/romshark/templier/internal/log"
 	"github.com/romshark/templier/internal/statetrack"
 
 	"github.com/andybalholm/brotli"
@@ -38,13 +38,15 @@ const (
 )
 
 type Config struct {
-	PrintJSDebugLogs bool
-	AppHost          *url.URL
-	ProxyTimeout     time.Duration
+	PrintJSDebugLogs   bool
+	AppHost            *url.URL
+	ProxyTimeout       time.Duration
+	CustomWatcherNames []string
 }
 
 type Server struct {
-	config            *config.Config
+	config            Config
+	logger            *slog.Logger
 	httpClient        *http.Client
 	stateTracker      *statetrack.Tracker
 	reload            *broadcaster.SignalBroadcaster
@@ -74,13 +76,15 @@ func New(
 	httpClient *http.Client,
 	stateTracker *statetrack.Tracker,
 	reload *broadcaster.SignalBroadcaster,
-	config *config.Config,
+	logger *slog.Logger,
+	conf Config,
 ) *Server {
 	jsInjection := MustRenderJSInjection(
-		context.Background(), config.Log.PrintJSDebugLogs,
+		context.Background(), conf.PrintJSDebugLogs,
 	)
 	s := &Server{
-		config:       config,
+		config:       conf,
+		logger:       logger,
 		httpClient:   httpClient,
 		stateTracker: stateTracker,
 		reload:       reload,
@@ -91,7 +95,7 @@ func New(
 			CheckOrigin:     func(r *http.Request) bool { return true }, // Ignore CORS
 		},
 	}
-	s.reverseProxy = httputil.NewSingleHostReverseProxy(config.App.Host.URL)
+	s.reverseProxy = httputil.NewSingleHostReverseProxy(conf.AppHost)
 	s.reverseProxy.Transport = &roundTripper{
 		maxRetries:      ReverseProxyRetries,
 		initialDelay:    ReverseProxyInitialDelay,
@@ -203,7 +207,7 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 
 	c, err := s.webSocketUpgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Errorf("upgrading to websocket: %v", err)
+		s.logger.Error("upgrading to websocket", "err", err)
 		internalErr(w, "upgrading to websocket", err)
 		return
 	}
@@ -221,13 +225,12 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 		s.stateTracker.RemoveListener(notifyStateChange)
 		s.reload.RemoveListener(notifyReload)
 		cancel()
-		log.Debugf("websockets: disconnect (%p); %d active listener(s)",
-			c, s.stateTracker.NumListeners())
+		s.logger.Debug("websockets: disconnect",
+			"listeners", s.stateTracker.NumListeners())
 	}()
 
-	log.Debugf(
-		"websockets: upgrade connection (%p): %q; %d active listener(s)",
-		c, r.URL.String(), s.stateTracker.NumListeners())
+	s.logger.Debug("websockets: upgrade connection",
+		"url", r.URL.String(), "listeners", s.stateTracker.NumListeners())
 
 	go func() {
 		defer cancel()
@@ -243,12 +246,12 @@ func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-notifyStateChange:
-			log.Debugf("websockets: notify state change (%p)", c)
+			s.logger.Debug("websockets: notify state change")
 			if !writeWSMsg(c, bytesMsgReload) {
 				return // Disconnect
 			}
 		case <-notifyReload:
-			log.Debugf("websockets: notify reload (%p)", c)
+			s.logger.Debug("websockets: notify reload")
 			if !writeWSMsg(c, bytesMsgReload) {
 				return // Disconnect
 			}
@@ -291,9 +294,9 @@ func (s *Server) newReports() []Report {
 	if m := s.stateTracker.Get(statetrack.IndexExit); m != "" {
 		return []Report{{Subject: "process", Body: m}}
 	}
-	for i, w := range s.config.CustomWatchers {
+	for i, name := range s.config.CustomWatcherNames {
 		if m := s.stateTracker.Get(statetrack.IndexOffsetCustomWatcher + i); m != "" {
-			report = append(report, Report{Subject: string(w.Name), Body: m})
+			report = append(report, Report{Subject: name, Body: m})
 		}
 	}
 	return report
@@ -307,7 +310,7 @@ func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
 		title = strconv.Itoa(len(reports)) + " errors"
 	}
 
-	err := RenderErrpage(r.Context(), w, title, reports, s.config.Log.PrintJSDebugLogs)
+	err := RenderErrpage(r.Context(), w, title, reports, s.config.PrintJSDebugLogs)
 	if err != nil {
 		panic(fmt.Errorf("rendering errpage: %w", err))
 	}

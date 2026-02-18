@@ -15,19 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/romshark/templier/engine"
 	"github.com/romshark/templier/internal/action"
-	"github.com/romshark/templier/internal/log"
 
-	"github.com/gobwas/glob"
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/romshark/yamagiconf"
 )
 
-const (
-	Version               = "0.10.24"
-	SupportedTemplVersion = "v0.3.977"
-)
-
-var config Config
+var conf Config
 
 type Config struct {
 	// Compiler defines optional Go compiler flags
@@ -220,16 +215,22 @@ func (t *TrimmedString) UnmarshalText(text []byte) error {
 	return nil
 }
 
-type LogLevel log.LogLevel
+type LogLevel int8
+
+const (
+	LogLevelErrOnly LogLevel = 0
+	LogLevelVerbose LogLevel = 1
+	LogLevelDebug   LogLevel = 2
+)
 
 func (l *LogLevel) UnmarshalText(text []byte) error {
 	switch string(text) {
 	case "", "erronly":
-		*l = LogLevel(log.LogLevelErrOnly)
+		*l = LogLevelErrOnly
 	case "verbose":
-		*l = LogLevel(log.LogLevelVerbose)
+		*l = LogLevelVerbose
 	case "debug":
-		*l = LogLevel(log.LogLevelDebug)
+		*l = LogLevelDebug
 	default:
 		return fmt.Errorf(`invalid log option %q, `+
 			`use either of: ["" (same as erronly), "erronly", "verbose", "debug"]`,
@@ -311,9 +312,9 @@ func (u *URL) UnmarshalText(t []byte) error {
 type GlobList []string
 
 func (e GlobList) Validate() error {
-	for i, expr := range config.App.Exclude {
-		if _, err := glob.Compile(expr); err != nil {
-			return fmt.Errorf("at index %d: %w", i, err)
+	for i, expr := range e {
+		if !doublestar.ValidatePattern(expr) {
+			return fmt.Errorf("at index %d: invalid glob pattern %q", i, expr)
 		}
 	}
 	return nil
@@ -339,35 +340,33 @@ func PrintVersionInfoAndExit() {
 		fmt.Printf("Reading build information: %v\n", err)
 	}
 
-	fmt.Printf("Templiér v%s\n\n", Version)
+	fmt.Printf("Templiér v%s\n\n", engine.Version)
 	fmt.Printf("%v\n", info)
 }
 
-func MustParse() *Config {
+func MustParse() engine.Config {
 	var fVersion bool
 	var fConfigPath string
 	flag.BoolVar(&fVersion, "version", false, "show version")
 	flag.StringVar(&fConfigPath, "config", "", "config file path")
 	flag.Parse()
 
-	log.Debugf("reading config file: %q", fConfigPath)
-
 	if fVersion {
 		PrintVersionInfoAndExit()
 	}
 
 	// Set default config.
-	config.App.DirSrcRoot = "./"
-	config.App.DirCmd = "./"
-	config.App.DirWork = "./"
-	config.Debounce = 50 * time.Millisecond
-	config.ProxyTimeout = 2 * time.Second
-	config.Lint = true
-	config.Format = true
-	config.Log.Level = LogLevel(log.LogLevelErrOnly)
-	config.Log.ClearOn = LogClearDisabled
-	config.Log.PrintJSDebugLogs = false
-	config.TLS = nil
+	conf.App.DirSrcRoot = "./"
+	conf.App.DirCmd = "./"
+	conf.App.DirWork = "./"
+	conf.Debounce = 50 * time.Millisecond
+	conf.ProxyTimeout = 2 * time.Second
+	conf.Lint = true
+	conf.Format = true
+	conf.Log.Level = LogLevelErrOnly
+	conf.Log.ClearOn = LogClearDisabled
+	conf.Log.PrintJSDebugLogs = false
+	conf.TLS = nil
 
 	if fConfigPath == "" {
 		// Try to detect config automatically.
@@ -376,27 +375,30 @@ func MustParse() *Config {
 		} else if _, err := os.Stat("templier.yaml"); err == nil {
 			fConfigPath = "templier.yaml"
 		} else {
-			log.Fatalf("couldn't find config file: templier.yml")
+			fmt.Fprintln(os.Stderr, "couldn't find config file: templier.yml")
+			os.Exit(1)
 		}
 	}
-	err := yamagiconf.LoadFile(fConfigPath, &config)
+	err := yamagiconf.LoadFile(fConfigPath, &conf)
 	if err != nil {
-		log.Fatalf("reading config file: %v", err)
+		fmt.Fprintf(os.Stderr, "reading config file: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Set default watch debounce
-	for i := range config.CustomWatchers {
-		if config.CustomWatchers[i].Debounce == 0 {
-			config.CustomWatchers[i].Debounce = 50 * time.Millisecond
+	for i := range conf.CustomWatchers {
+		if conf.CustomWatchers[i].Debounce == 0 {
+			conf.CustomWatchers[i].Debounce = 50 * time.Millisecond
 		}
 	}
 
-	config.App.dirSrcRootAbsolute, err = filepath.Abs(config.App.DirSrcRoot)
+	conf.App.dirSrcRootAbsolute, err = filepath.Abs(conf.App.DirSrcRoot)
 	if err != nil {
-		log.Fatalf("getting absolute path for app.dir-src-root: %v", err)
+		fmt.Fprintf(os.Stderr, "getting absolute path for app.dir-src-root: %v\n", err)
+		os.Exit(1)
 	}
 
-	if c := config.Compiler; c != nil {
+	if c := conf.Compiler; c != nil {
 		c.flags = []string{}
 		if c.Gcflags != "" {
 			c.flags = append(c.flags, "-gcflags", c.Gcflags)
@@ -425,8 +427,59 @@ func MustParse() *Config {
 		}
 	}
 
-	log.Debugf("set source directory absolute path: %q", config.App.dirSrcRootAbsolute)
-	return &config
+	return toEngineConfig(&conf)
+}
+
+func toEngineConfig(c *Config) engine.Config {
+	conf := engine.Config{
+		App: engine.AppConfig{
+			DirSrcRoot: c.App.DirSrcRootAbsolute(),
+			Exclude:    []string(c.App.Exclude),
+			DirCmd:     c.App.DirCmd,
+			DirWork:    c.App.DirWork,
+			Flags:      []string(c.App.Flags),
+			Host:       c.App.Host.URL,
+		},
+		Debounce:     c.Debounce,
+		ProxyTimeout: c.ProxyTimeout,
+		Lint:         c.Lint,
+		Format:       c.Format,
+		TemplierHost: c.TemplierHost,
+		Log: engine.LogConfig{
+			Level:            engine.LogLevel(c.Log.Level),
+			ClearOn:          engine.LogClearOn(c.Log.ClearOn),
+			PrintJSDebugLogs: c.Log.PrintJSDebugLogs,
+		},
+	}
+
+	if c.Compiler != nil {
+		conf.Compiler = &engine.CompilerConfig{
+			Flags: c.CompilerFlags(),
+			Env:   c.CompilerEnv(),
+		}
+	}
+
+	if c.TLS != nil {
+		conf.TLS = &engine.TLSConfig{
+			Cert: c.TLS.Cert,
+			Key:  c.TLS.Key,
+		}
+	}
+
+	conf.CustomWatchers = make([]engine.CustomWatcherConfig, len(c.CustomWatchers))
+	for i, w := range c.CustomWatchers {
+		conf.CustomWatchers[i] = engine.CustomWatcherConfig{
+			Name:      string(w.Name),
+			Cmd:       string(w.Cmd),
+			Include:   []string(w.Include),
+			Exclude:   []string(w.Exclude),
+			Debounce:  w.Debounce,
+			FailOnErr: w.FailOnError,
+			Requires:  engine.ActionType(w.Requires),
+		}
+	}
+
+	return conf
 }
 
 type SpaceSeparatedList []string

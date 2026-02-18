@@ -13,12 +13,13 @@ import (
 	"strings"
 	"sync"
 
+	"log/slog"
+
 	"github.com/romshark/templier/internal/filereg"
 	"github.com/romshark/templier/internal/fswalk"
-	"github.com/romshark/templier/internal/log"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
-	"github.com/gobwas/glob"
 )
 
 // Watcher is a recursive file watcher.
@@ -27,9 +28,10 @@ type Watcher struct {
 	runnerStart  sync.WaitGroup
 	closeOnce    sync.Once
 	baseDir      string
+	logger       *slog.Logger
 	fileRegistry *filereg.Registry
 	watchedDirs  map[string]struct{}
-	exclude      map[string]glob.Glob
+	exclude      map[string]string
 	onChange     func(ctx context.Context, e fsnotify.Event) error
 	watcher      *fsnotify.Watcher
 	close        chan struct{}
@@ -50,6 +52,7 @@ const (
 // baseDir is used as the base path for relative ignore expressions.
 func New(
 	baseDir string,
+	logger *slog.Logger,
 	onChange func(ctx context.Context, e fsnotify.Event) error,
 ) (*Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
@@ -59,8 +62,9 @@ func New(
 	w := &Watcher{
 		fileRegistry: filereg.New(),
 		baseDir:      baseDir,
+		logger:       logger,
 		watchedDirs:  make(map[string]struct{}),
-		exclude:      make(map[string]glob.Glob),
+		exclude:      make(map[string]string),
 		onChange:     onChange,
 		watcher:      watcher,
 		close:        make(chan struct{}),
@@ -216,7 +220,7 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 			// by tools creating and deleting temporary files so quickly that
 			// the watcher sees a file change but isn't fast enough to read it.
 			if errors.Is(err, fs.ErrNotExist) {
-				log.Errorf("adding created file (%q) to registry: %v", e.Name, err)
+				w.logger.Error("adding created file to registry", "name", e.Name, "err", err)
 				return nil
 			}
 			return fmt.Errorf("adding created file (%q) to registry: %w", e.Name, err)
@@ -240,9 +244,8 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 // watched directories that match the expression.
 // Returns ErrClosed if the watcher is already closed or not running.
 func (w *Watcher) Ignore(globExpression string) error {
-	g, err := glob.Compile(globExpression)
-	if err != nil {
-		return err
+	if !doublestar.ValidatePattern(globExpression) {
+		return fmt.Errorf("invalid glob pattern: %q", globExpression)
 	}
 
 	w.lock.Lock()
@@ -255,7 +258,7 @@ func (w *Watcher) Ignore(globExpression string) error {
 	// Reset the file registry because we don't know what files will be excluded.
 	w.fileRegistry.Reset()
 
-	w.exclude[globExpression] = g
+	w.exclude[globExpression] = globExpression
 	for dir := range w.watchedDirs {
 		if dir == w.baseDir {
 			continue
@@ -295,7 +298,7 @@ func (w *Watcher) Add(dir string) error {
 }
 
 func (w *Watcher) add(dir string) error {
-	log.Debugf("watching directory: %q", dir)
+	w.logger.Debug("watching directory", "dir", dir)
 	err := forEachDir(dir, func(dir string) error {
 		if err := w.isExluded(dir); err != nil {
 			if err == errExcluded {
@@ -331,7 +334,7 @@ func (w *Watcher) remove(dir string) error {
 	if _, ok := w.watchedDirs[dir]; !ok {
 		return nil
 	}
-	log.Debugf("unwatch directory: %q", dir)
+	w.logger.Debug("unwatch directory", "dir", dir)
 	delete(w.watchedDirs, dir)
 	if err := w.removeWatcher(dir); err != nil {
 		return err
@@ -375,8 +378,9 @@ func (w *Watcher) isExluded(path string) error {
 		// The working directory shall never be excluded based on globs.
 		return nil
 	}
-	for _, x := range w.exclude {
-		if x.Match(relPath) {
+	relPath = filepath.ToSlash(relPath)
+	for _, pattern := range w.exclude {
+		if matched, _ := doublestar.Match(pattern, relPath); matched {
 			return errExcluded
 		}
 	}
@@ -384,6 +388,7 @@ func (w *Watcher) isExluded(path string) error {
 }
 
 var errExcluded = errors.New("path excluded")
+
 
 func (w *Watcher) isDirEvent(e fsnotify.Event) bool {
 	switch e.Op {
