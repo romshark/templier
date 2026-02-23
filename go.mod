@@ -10,7 +10,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/romshark/yamagiconf v1.0.6
+	github.com/romshark/yamagiconf v1.1.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/net v0.50.0
 	golang.org/x/sync v0.19.0
