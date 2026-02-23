@@ -20,6 +20,8 @@ Templiér allows arbitrary CLI commands to be defined as [custom watchers](#cust
   - example: [Rebuild CSS](#custom-watcher-example-tailwindcss-and-postcss)
   - example: [Restart on config change](#custom-watcher-example-reload-on-config-change)
 
+Templiér is an integral part of [github.com/romshark/datapages](https://github.com/romshark/datapages/).
+
 ## Quick Start
 
 Install Templiér:
