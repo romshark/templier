@@ -39,6 +39,7 @@ const serverHealthPreflightWaitInterval = 100 * time.Millisecond
 // Use [New] to create an Engine and [Engine.Run] to start it.
 type Engine struct {
 	conf        Config
+	version     string
 	logger      *slog.Logger
 	onClearLogs func()
 	stdout      io.Writer
@@ -68,6 +69,17 @@ type Options struct {
 	// Stderr is the writer for the app server's stderr.
 	// If nil, [os.Stderr] is used.
 	Stderr io.Writer
+
+	// Version is the version string (e.g. "1.2.3").
+	// When using the CLI, this is set via goreleaser ldflags.
+	// When empty, [Version] is used as fallback.
+	Version string
+
+	// Commit is the VCS commit hash. Set via goreleaser ldflags in the CLI.
+	Commit string
+
+	// Date is the VCS commit date. Set via goreleaser ldflags in the CLI.
+	Date string
 }
 
 // New creates a new [Engine] with the given configuration.
@@ -94,6 +106,7 @@ func New(conf Config, opts Options) (*Engine, error) {
 
 	e := &Engine{
 		conf:           conf,
+		version:        opts.Version,
 		logger:         logger,
 		onClearLogs:    opts.ClearLogs,
 		stdout:         stdout,
@@ -766,10 +779,10 @@ func (e *Engine) checkTemplVersion(ctx context.Context) error {
 		return err
 	}
 	outStr := strings.TrimSpace(string(out))
-	if !strings.HasPrefix(outStr, SupportedTemplVersion) {
+	if supported := supportedTemplVersion(); !strings.HasPrefix(outStr, supported) {
 		e.logger.Warn("unsupported templ version",
-			"templier_version", Version,
-			"supported_templ_version", SupportedTemplVersion,
+			"templier_version", e.version,
+			"supported_templ_version", supported,
 			"current_templ_version", outStr)
 	}
 	return nil

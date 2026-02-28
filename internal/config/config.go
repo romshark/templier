@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -320,7 +321,7 @@ func (e GlobList) Validate() error {
 	return nil
 }
 
-func PrintVersionInfoAndExit() {
+func PrintVersionInfoAndExit(version, commit, buildDate string) {
 	defer os.Exit(0)
 
 	p, err := exec.LookPath(os.Args[0])
@@ -340,11 +341,15 @@ func PrintVersionInfoAndExit() {
 		fmt.Printf("Reading build information: %v\n", err)
 	}
 
-	fmt.Printf("Templiér v%s\n\n", engine.Version)
+	fmt.Printf("Templiér %s\n\n", version)
+	fmt.Printf("  commit: %s\n", commit)
+	fmt.Printf("  built:  %s\n", buildDate)
+	fmt.Printf("  go:     %s\n", runtime.Version())
+	fmt.Printf("  os:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("%v\n", info)
 }
 
-func MustParse() engine.Config {
+func MustParse(version, commit, date string) engine.Config {
 	var fVersion bool
 	var fConfigPath string
 	flag.BoolVar(&fVersion, "version", false, "show version")
@@ -352,7 +357,7 @@ func MustParse() engine.Config {
 	flag.Parse()
 
 	if fVersion {
-		PrintVersionInfoAndExit()
+		PrintVersionInfoAndExit(version, commit, date)
 	}
 
 	// Set default config.

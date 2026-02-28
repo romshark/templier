@@ -7,15 +7,27 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"runtime/debug"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-const (
-	Version               = "0.11.2"
-	SupportedTemplVersion = "v0.3.1001"
-)
+// supportedTemplVersion returns the version of github.com/a-h/templ
+// that the engine was compiled against, read from the embedded build info.
+func supportedTemplVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, dep := range info.Deps {
+			if dep.Path == "github.com/a-h/templ" {
+				if dep.Replace != nil {
+					return dep.Replace.Version
+				}
+				return dep.Version
+			}
+		}
+	}
+	return ""
+}
 
 // ActionType defines what action a custom watcher requires after a file change.
 type ActionType int8
