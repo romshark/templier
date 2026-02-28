@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	Version               = "0.11.1"
-	SupportedTemplVersion = "v0.3.977"
+	Version               = "0.11.2"
+	SupportedTemplVersion = "v0.3.1001"
 )
 
 // ActionType defines what action a custom watcher requires after a file change.
