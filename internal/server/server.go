@@ -124,6 +124,17 @@ func (s *Server) modifyResponse(r *http.Response) error {
 		return nil
 	}
 
+	// Skip modification for responses that carry no body (1xx, 204, 304).
+	// A 304 with Content-Encoding: gzip but an empty body would otherwise
+	// cause gzip.NewReader to fail with EOF, turning the response into a 502.
+	// In a browser this would otherwise create an endless loop:
+	// 200 -> 304 -> 502 -> 200 -> 304 -> 502 -> ...
+	if r.StatusCode < 200 ||
+		r.StatusCode == http.StatusNoContent ||
+		r.StatusCode == http.StatusNotModified {
+		return nil
+	}
+
 	// Skip modification if Content-Type is text/event-stream (SSE)
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
 		return nil
