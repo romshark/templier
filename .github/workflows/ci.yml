@@ -4,10 +4,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go 1.26.0
+      - name: Install Go 1.26.1
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26.0"
+          go-version: "1.26.1"
           check-latest: true
       - name: Checkout repository
         uses: actions/checkout@v6
