@@ -101,6 +101,11 @@ type Config struct {
 
 	// Log configures logging behavior.
 	Log LogConfig
+
+	// ReconnectMessage is the message shown in the browser overlay
+	// when the WebSocket connection to the dev server is lost.
+	// Empty means "reconnecting...".
+	ReconnectMessage string
 }
 
 // AppConfig defines the application being developed.
@@ -290,5 +295,8 @@ func (c *Config) applyDefaults() {
 		if c.CustomWatchers[i].Debounce == 0 {
 			c.CustomWatchers[i].Debounce = 50 * time.Millisecond
 		}
+	}
+	if c.ReconnectMessage == "" {
+		c.ReconnectMessage = "reconnecting..."
 	}
 }

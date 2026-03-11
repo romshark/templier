@@ -16,7 +16,7 @@ func TestRenderErrPage(t *testing.T) {
 	err := server.RenderErrpage(
 		context.Background(), &buf, "test", []server.Report{
 			{Subject: "Test Subject", Body: "Test Body"},
-		}, true,
+		}, true, "reconnecting...",
 	)
 	require.NoError(t, err)
 
@@ -25,7 +25,7 @@ func TestRenderErrPage(t *testing.T) {
 }
 
 func TestMustRenderJSInjection(t *testing.T) {
-	jsInjection := server.MustRenderJSInjection(context.Background(), true)
+	jsInjection := server.MustRenderJSInjection(context.Background(), true, "reconnecting...")
 	require.NotEmpty(t, jsInjection)
 
 	_, err := html.Parse(bytes.NewReader(jsInjection))

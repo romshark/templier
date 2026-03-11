@@ -42,6 +42,7 @@ type Config struct {
 	AppHost            *url.URL
 	ProxyTimeout       time.Duration
 	CustomWatcherNames []string
+	ReconnectMessage   string
 }
 
 type Server struct {
@@ -55,9 +56,11 @@ type Server struct {
 	reverseProxy      *httputil.ReverseProxy
 }
 
-func MustRenderJSInjection(ctx context.Context, printJSDebugLogs bool) []byte {
+func MustRenderJSInjection(
+	ctx context.Context, printJSDebugLogs bool, reconnectMessage string,
+) []byte {
 	var buf bytes.Buffer
-	err := jsInjection(printJSDebugLogs, PathProxyEvents).Render(ctx, &buf)
+	err := jsInjection(printJSDebugLogs, PathProxyEvents, reconnectMessage).Render(ctx, &buf)
 	if err != nil {
 		panic(err)
 	}
@@ -67,9 +70,9 @@ func MustRenderJSInjection(ctx context.Context, printJSDebugLogs bool) []byte {
 func RenderErrpage(
 	ctx context.Context, w io.Writer,
 	title string, content []Report,
-	printJSDebugLogs bool,
+	printJSDebugLogs bool, reconnectMessage string,
 ) error {
-	return pageError(title, content, printJSDebugLogs, PathProxyEvents).Render(ctx, w)
+	return pageError(title, content, printJSDebugLogs, PathProxyEvents, reconnectMessage).Render(ctx, w)
 }
 
 func New(
@@ -80,7 +83,7 @@ func New(
 	conf Config,
 ) *Server {
 	jsInjection := MustRenderJSInjection(
-		context.Background(), conf.PrintJSDebugLogs,
+		context.Background(), conf.PrintJSDebugLogs, conf.ReconnectMessage,
 	)
 	s := &Server{
 		config:       conf,
@@ -321,7 +324,7 @@ func (s *Server) handleErrPage(w http.ResponseWriter, r *http.Request) {
 		title = strconv.Itoa(len(reports)) + " errors"
 	}
 
-	err := RenderErrpage(r.Context(), w, title, reports, s.config.PrintJSDebugLogs)
+	err := RenderErrpage(r.Context(), w, title, reports, s.config.PrintJSDebugLogs, s.config.ReconnectMessage)
 	if err != nil {
 		panic(fmt.Errorf("rendering errpage: %w", err))
 	}

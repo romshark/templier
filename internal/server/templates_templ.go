@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 func pageError(
 	title string,
 	content []Report,
-	printDebugLogs bool, wsEventsEndpoint string,
+	printDebugLogs bool, wsEventsEndpoint string, reconnectMessage string,
 ) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -88,7 +88,7 @@ func pageError(
 				}
 			}
 		}
-		templ_7745c5c3_Err = jsInjection(printDebugLogs, wsEventsEndpoint).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = jsInjection(printDebugLogs, wsEventsEndpoint, reconnectMessage).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -100,7 +100,7 @@ func pageError(
 	})
 }
 
-func jsInjection(printDebugLogs bool, wsEventsEndpoint string) templ.Component {
+func jsInjection(printDebugLogs bool, wsEventsEndpoint string, reconnectMessage string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -124,14 +124,16 @@ func jsInjection(printDebugLogs bool, wsEventsEndpoint string) templ.Component {
 		templ_7745c5c3_Err = templ.JSONScript("_templier__jsInjection", struct {
 			PrintDebugLogs   bool
 			WSEventsEndpoint string
+			ReconnectMessage string
 		}{
 			PrintDebugLogs:   printDebugLogs,
 			WSEventsEndpoint: wsEventsEndpoint,
+			ReconnectMessage: reconnectMessage,
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<script type=\"text/javascript\">\n\t\t(() => {\n\t\t\tif (window._templier__jsInjection_initialized === true) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tlet params = JSON.parse(\n\t\t\t\tdocument.getElementById('_templier__jsInjection').textContent\n\t\t\t)\n\n\t\t\tlet reconnectingOverlay \n\t\t\tfunction showReconnecting() {\n\t\t\t\tif (reconnectingOverlay != null) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\treconnectingOverlay = document.createElement('p')\n\t\t\t\treconnectingOverlay.innerHTML = '<span>🔌 reconnecting Templier...</span>'\n\t\t\t\treconnectingOverlay.style.margin = 0\n\t\t\t\treconnectingOverlay.style.display = 'flex'\n\t\t\t\treconnectingOverlay.style.justifyContent = 'center'\n\t\t\t\treconnectingOverlay.style.alignItems = 'center'\n\t\t\t\treconnectingOverlay.style.position = 'fixed'\n\t\t\t\treconnectingOverlay.style.top = 0\n\t\t\t\treconnectingOverlay.style.left = 0\n\t\t\t\treconnectingOverlay.style.fontSize = '1.25rem'\n\t\t\t\treconnectingOverlay.style.width = '100%'\n\t\t\t\treconnectingOverlay.style.height = '100%'\n\t\t\t\treconnectingOverlay.style.background = 'rgba(0,0,0,.8)'\n\t\t\t\treconnectingOverlay.style.color = 'white'\n\t\t\t\tdocument.body.appendChild(reconnectingOverlay)\n\t\t\t}\n\t\t\tfunction hideReconnecting() {\n\t\t\t\tif (reconnectingOverlay == null) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\treconnectingOverlay.remove()\n\t\t\t\treconnectingOverlay = null\n\t\t\t}\n\n\t\t\tconst protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'\n\n\t\t\tfunction connectWebsocket() {\n\t\t\t\tconst wsURL = `${protocol}//${window.location.host}${params.WSEventsEndpoint}`\n\t\t\t\tws = new WebSocket(wsURL)\n\t\t\t\tws.onopen = function (e) {\n\t\t\t\t\tif (reconnectingOverlay != null) {\n\t\t\t\t\t\twindow.location.reload()\n\t\t\t\t\t\treturn\n\t\t\t\t\t}\n\t\t\t\t\thideReconnecting()\n\t\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\t\tconsole.debug('templier: connectWebsocket connected')\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\tws.onerror = function (e) {\n\t\t\t\t\t\tconsole.debug('templier: websocket connection error: ' + e.data)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tws.onmessage = function (e) {\n\t\t\t\t\tswitch (e.data) {\n\t\t\t\t\tcase 'r': // Reload\n\t\t\t\t\t\twindow.location.reload()\n\t\t\t\t\tcase 's': // Shutdown\n\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tws.onclose = function (e) {\n\t\t\t\t\tshowReconnecting()\n\t\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\t\tconsole.debug('templier: websocket disconnected, reconnecting...')\n\t\t\t\t\t}\n\t\t\t\t\tsetTimeout(() => connectWebsocket(), 300)\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tconnectWebsocket()\n\t\t\twindow._templier__jsInjection_initialized = true\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<script type=\"text/javascript\">\n\t\t(() => {\n\t\t\tif (window._templier__jsInjection_initialized === true) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tlet params = JSON.parse(\n\t\t\t\tdocument.getElementById('_templier__jsInjection').textContent\n\t\t\t)\n\n\t\t\tlet reconnectingOverlay \n\t\t\tfunction showReconnecting() {\n\t\t\t\tif (reconnectingOverlay != null) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\treconnectingOverlay = document.createElement('p')\n\t\t\t\treconnectingOverlay.innerHTML = '<span>' +\n\t\t\t\t\tparams.ReconnectMessage +\n\t\t\t\t\t'</span>'\n\t\t\t\treconnectingOverlay.style.margin = 0\n\t\t\t\treconnectingOverlay.style.display = 'flex'\n\t\t\t\treconnectingOverlay.style.justifyContent = 'center'\n\t\t\t\treconnectingOverlay.style.alignItems = 'center'\n\t\t\t\treconnectingOverlay.style.position = 'fixed'\n\t\t\t\treconnectingOverlay.style.top = 0\n\t\t\t\treconnectingOverlay.style.left = 0\n\t\t\t\treconnectingOverlay.style.fontSize = '1.25rem'\n\t\t\t\treconnectingOverlay.style.width = '100%'\n\t\t\t\treconnectingOverlay.style.height = '100%'\n\t\t\t\treconnectingOverlay.style.zIndex = '9999'\n\t\t\t\treconnectingOverlay.style.background = 'rgba(0,0,0,.8)'\n\t\t\t\treconnectingOverlay.style.backdropFilter = 'blur(4px)'\n\t\t\t\treconnectingOverlay.style.color = 'white'\n\t\t\t\tdocument.body.appendChild(reconnectingOverlay)\n\t\t\t}\n\t\t\tfunction hideReconnecting() {\n\t\t\t\tif (reconnectingOverlay == null) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\treconnectingOverlay.remove()\n\t\t\t\treconnectingOverlay = null\n\t\t\t}\n\n\t\t\tconst protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'\n\n\t\t\tfunction connectWebsocket() {\n\t\t\t\tconst wsURL = `${protocol}//${window.location.host}${params.WSEventsEndpoint}`\n\t\t\t\tws = new WebSocket(wsURL)\n\t\t\t\tws.onopen = function (e) {\n\t\t\t\t\tif (reconnectingOverlay != null) {\n\t\t\t\t\t\twindow.location.reload()\n\t\t\t\t\t\treturn\n\t\t\t\t\t}\n\t\t\t\t\thideReconnecting()\n\t\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\t\tconsole.debug('templier: connectWebsocket connected')\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\tws.onerror = function (e) {\n\t\t\t\t\t\tconsole.debug('templier: websocket connection error: ' + e.data)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tws.onmessage = function (e) {\n\t\t\t\t\tswitch (e.data) {\n\t\t\t\t\tcase 'r': // Reload\n\t\t\t\t\t\twindow.location.reload()\n\t\t\t\t\tcase 's': // Shutdown\n\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tws.onclose = function (e) {\n\t\t\t\t\tshowReconnecting()\n\t\t\t\t\tif (params.PrintDebugLogs) {\n\t\t\t\t\t\tconsole.debug('templier: websocket disconnected, reconnecting...')\n\t\t\t\t\t}\n\t\t\t\t\tsetTimeout(() => connectWebsocket(), 300)\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tconnectWebsocket()\n\t\t\twindow._templier__jsInjection_initialized = true\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

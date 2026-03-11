@@ -3,7 +3,7 @@ package server
 templ pageError(
 	title string,
 	content []Report,
-	printDebugLogs bool, wsEventsEndpoint string,
+	printDebugLogs bool, wsEventsEndpoint string, reconnectMessage string,
 ) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -54,18 +54,20 @@ templ pageError(
 					<hr/>
 				}
 			}
-			@jsInjection(printDebugLogs, wsEventsEndpoint)
+			@jsInjection(printDebugLogs, wsEventsEndpoint, reconnectMessage)
 		</body>
 	</html>
 }
 
-templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
+templ jsInjection(printDebugLogs bool, wsEventsEndpoint string, reconnectMessage string) {
 	@templ.JSONScript("_templier__jsInjection", struct {
 		PrintDebugLogs   bool
 		WSEventsEndpoint string
+		ReconnectMessage string
 	}{
 		PrintDebugLogs:   printDebugLogs,
 		WSEventsEndpoint: wsEventsEndpoint,
+		ReconnectMessage: reconnectMessage,
 	})
 	<script type="text/javascript">
 		(() => {
@@ -82,7 +84,9 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 					return
 				}
 				reconnectingOverlay = document.createElement('p')
-				reconnectingOverlay.innerHTML = '<span>🔌 reconnecting Templier...</span>'
+				reconnectingOverlay.innerHTML = '<span>' +
+					params.ReconnectMessage +
+					'</span>'
 				reconnectingOverlay.style.margin = 0
 				reconnectingOverlay.style.display = 'flex'
 				reconnectingOverlay.style.justifyContent = 'center'
@@ -93,7 +97,9 @@ templ jsInjection(printDebugLogs bool, wsEventsEndpoint string) {
 				reconnectingOverlay.style.fontSize = '1.25rem'
 				reconnectingOverlay.style.width = '100%'
 				reconnectingOverlay.style.height = '100%'
+				reconnectingOverlay.style.zIndex = '9999'
 				reconnectingOverlay.style.background = 'rgba(0,0,0,.8)'
+				reconnectingOverlay.style.backdropFilter = 'blur(4px)'
 				reconnectingOverlay.style.color = 'white'
 				document.body.appendChild(reconnectingOverlay)
 			}

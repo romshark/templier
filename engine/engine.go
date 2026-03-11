@@ -351,6 +351,7 @@ func (e *Engine) runTemplierServer(
 				AppHost:            e.conf.App.Host,
 				ProxyTimeout:       e.conf.ProxyTimeout,
 				CustomWatcherNames: customWatcherNames,
+				ReconnectMessage:   e.conf.ReconnectMessage,
 			},
 		),
 	}
