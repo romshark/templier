@@ -99,7 +99,7 @@ app:
   dir-src-root: ./
 
   # app.exclude defines glob filter expressions relative to app.dir-src-root
-  # to match files exluded from watching.
+  # to match files excluded from rebuild/restart.
   exclude:
     - .* # all hidden files and directories
     - "*~" # all temporary files with a tilde (fixes jetbrains IDEs save)
