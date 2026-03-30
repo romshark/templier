@@ -220,7 +220,8 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 			// by tools creating and deleting temporary files so quickly that
 			// the watcher sees a file change but isn't fast enough to read it.
 			if errors.Is(err, fs.ErrNotExist) {
-				w.logger.Error("adding created file to registry", "name", e.Name, "err", err)
+				w.logger.Debug("adding created file to registry", "name",
+					e.Name, "err", err)
 				return nil
 			}
 			return fmt.Errorf("adding created file (%q) to registry: %w", e.Name, err)
@@ -388,7 +389,6 @@ func (w *Watcher) isExluded(path string) error {
 }
 
 var errExcluded = errors.New("path excluded")
-
 
 func (w *Watcher) isDirEvent(e fsnotify.Event) bool {
 	switch e.Op {
