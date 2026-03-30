@@ -202,6 +202,14 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 			// New sub-directory was created, start watching it.
 			if err := w.add(e.Name); err != nil {
 				w.lock.Unlock()
+				// Ignore not exist errors since those are usually triggered
+				// by tools creating and deleting temporary directories so quickly
+				// that the watcher sees the event but the dir is already gone.
+				if errors.Is(err, fs.ErrNotExist) {
+					w.logger.Debug("adding created directory", "name",
+						e.Name, "err", err)
+					return nil
+				}
 				return fmt.Errorf("adding created directory: %w", err)
 			}
 		case fsnotify.Remove, fsnotify.Rename:
