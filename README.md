@@ -11,9 +11,9 @@
 
 Templiér is a Go web frontend development environment for
 [Templ](https://github.com/a-h/templ)
-that behaves similarly to templ's native
+that works similarly to templ's native
 [`--watch`](https://templ.guide/developer-tools/live-reload/) mode but provides
-more functionality and reports all errors directly to all open browser tabs ✨.
+more functionality and reports errors directly to all open browser tabs ✨.
 
 Templiér allows arbitrary CLI commands to be defined as [custom watchers](#custom-watchers) ✨.
   - example: [Bundle JavaScript](#custom-watcher-example-javascript-bundler)
@@ -30,59 +30,58 @@ Install Templiér:
 go install github.com/romshark/templier@latest
 ```
 
-Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder as `templier.yml`, edit to your needs and run:
+Then copy [example-config.yml](https://github.com/romshark/templier/blob/main/example-config.yml) to your project source folder as `templier.yml`, adjust it to your needs, and run:
 
 ```sh
 templier --config ./templier.yml
 ```
 
-ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the directory it's running in without the explicit `--config` flag.
+ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the current directory without requiring the explicit `--config` flag.
 
 ## How is Templiér different from templ's own watch mode?
 
 As you may already know, templ supports [live reload](https://templ.guide/commands-and-tools/live-reload)
 out of the box using `templ generate --watch --proxy="http://localhost:8080" --cmd="go run ."`,
-which is great, but Templiér provides even better developer experience:
+which is great, but Templiér provides an even better developer experience:
 
 - 🥶 Templiér doesn't become unresponsive when the Go code fails to compile,
   instead it prints the compiler error output to the browser tab with ANSI
   colors preserved and keeps watching.
-  Once you fixed the Go code, Templiér will reload and work as usual with no intervention.
+  Once you've fixed the Go code, Templiér will reload and work as usual with no intervention.
   In contrast, templ's watcher needs to be restarted manually.
 - 📁 Templiér watches **all** file changes recursively,
   recompiles and restarts the server
   (unless the file matches `app.exclude` or is handled by a [custom watcher](#custom-watchers)).
   Editing an embedded `.json` file in your app?
-  Updating go mod? Templiér will notice, rebuild, restart and reload the browser
+  Updating `go.mod`? Templiér will notice, rebuild, restart, and reload the browser
   tab for you automatically!
 - 🖥️ Templiér shows Templ, Go compiler and [golangci-lint](https://golangci-lint.run/)
-  errors (if any), and any errors from [custom watchers](#custom-watchers) in the browser.
+  errors, if any, and errors from [custom watchers](#custom-watchers) in the browser.
   Templ's watcher just prints errors to the stdout and continues to display
   the last valid state.
 - ⚙️ Templiér provides more configuration options (TLS, debounce, exclude globs, etc.).
 
 ## Custom Watchers 👁️👁️
 
-Custom configurable watchers allow altering the behavior of Templiér for files
-that match any of the `include` globs and they can be used for various use cases
-demonstrated below.
+Custom watchers let you change how Templiér behaves for files that match any of
+the `include` globs, and they can be used for the use cases shown below.
 
-The `requires` option allows overwriting the default behavior:
+The `requires` option lets you override the default behavior:
 
-- empty field/string: no action, just execute Cmd.
-- `reload`: Only reloads all browser tabs.
+- empty field/string: no extra action, just execute `cmd`.
+- `reload`: Only reload all open browser tabs.
 - `restart`: Restarts the server without rebuilding.
 - `rebuild`: Requires the server to be rebuilt and restarted (standard behavior).
 
-If custom watcher `A` requires `reload` but custom watcher `B` requires `rebuild` then
+If custom watcher `A` requires `reload` but custom watcher `B` requires `rebuild`,
 `rebuild` will be chosen once all custom watchers have finished executing.
 
 ### Custom Watcher Example: JavaScript Bundler
 
-The following custom watcher will watch for `.js` file updates and automatically run
+The following custom watcher watches for `.js` file updates and automatically runs
 the CLI command `npm run js:bundle`, after which all browser tabs will be reloaded
-using `requires: reload`. `fail-on-error: true` specifies that if `eslint` or `esbuild`
-fail in the process, their error output will be shown directly in the browser.
+using `requires: reload`. `fail-on-error: true` means that if `eslint` or `esbuild`
+fails, their error output will be shown directly in the browser.
 
 ```yaml
 custom-watchers:
@@ -108,7 +107,7 @@ The `cmd` above refers to a script defined in `package.json` scripts:
 ### Custom Watcher Example: TailwindCSS and PostCSS
 
 [TailwindCSS](https://tailwindcss.com/) and [PostCSS](https://postcss.org/) are often
-used to simplify CSS styling and a custom watcher enables Templiér to hot-reload the
+used to simplify CSS styling, and a custom watcher enables Templiér to hot-reload the
 styles on changes:
 
 First, configure `postcss.config.js`:
@@ -135,7 +134,7 @@ module.exports = {
 };
 ```
 
-Create a `package.json` file and install all necessary dev-dependencies
+Create a `package.json` file and install all necessary dev dependencies:
 
 ```sh
 npm install tailwindcss postcss postcss-cli autoprefixer --save-dev
@@ -152,7 +151,7 @@ output file that's linked to in your HTML):
 },
 ```
 
-Finally, define a Templiér custom watcher to watch all Templ and CSS files and rebuild:
+Finally, define a Templiér custom watcher to watch all Templ and CSS files and reload the browser:
 
 ```yaml
 - name: Build CSS
@@ -166,11 +165,11 @@ Finally, define a Templiér custom watcher to watch all Templ and CSS files and 
 
 NOTE: if your `dist.css` is embedded, you may need to use `requires: rebuild`.
 
-### Custom Watcher Example: Reload on config change.
+### Custom Watcher Example: Reload on config change
 
-Normally, Templiér rebuilds and restarts the server when any file changes (except for
-`.templ` files). However, when a config file changes we don't usually
-require rebuilding the server. Restarting the server may be sufficient in this case:
+Normally, Templiér rebuilds and restarts the server when any file changes except
+for `.templ` files. However, when a config file changes, you usually don't need
+to rebuild the server. Restarting it may be sufficient:
 
 ```yaml
 - name: Restart server on config change
@@ -188,7 +187,7 @@ Templiér acts as a file watcher, proxy server and process manager.
 Once Templiér is started, it runs `templ generate --watch` in the background and begins
 watching files in the `app.dir-src-root` directory.
 On start and on file change, it automatically builds your application server executable
-saving it in the OS' temp directory (cleaned up latest before exiting) assuming that
+and saves it in the OS temp directory (cleaned up on exit at the latest), assuming that
 the main package is specified by the `app.dir-cmd` directory.
 Custom Go compiler arguments can be specified with `compiler`. Once built, the application server
 executable is launched with `app.flags` CLI parameters and the working directory
@@ -198,9 +197,9 @@ On `.templ` file changes Templiér only tries to compile and lint the server cod
 without refreshing the page.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
-all requests to the application server process that it launched injecting Templiér
-JavaScript that opens a websocket connection to Templiér from the browser tab to listen
-for events and reload or display necessary status information when necessary.
+all requests to the application server process it launches, injecting Templiér
+JavaScript that opens a websocket connection back to Templiér from the browser tab
+to listen for events and reload or display status information when needed.
 In the CLI console logs, all Templiér logs are prefixed with 🤖,
 while application server logs are displayed without the prefix.
 
@@ -211,25 +210,15 @@ Run the tests using `go test -race ./...` and use the latest version of
 
 ### Building
 
-You can build Templiér using the following command:
+Install Templiér using the following command in the repository root directory:
 
 ```sh
-go build -o templier ./bin/templier
+go install .
 ```
 
-If you're adding bin library to your path, you can just execute the binary.
-
-zsh:
-
-```zsh
-export PATH=$(pwd)/bin:$PATH
-```
-
-[fish](https://fishshell.com/):
-
-```fish
-fish_add_path (pwd)/bin
-```
+This installs the `templier` binary into your Go bin directory.
+If `templier` isn't found afterwards, make sure your Go bin directory is on
+your `PATH`: https://go.dev/wiki/GOPATH
 
 ### Important Considerations
 
