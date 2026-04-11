@@ -11,7 +11,7 @@
 
 Templiér is a Go web frontend development environment for
 [Templ](https://github.com/a-h/templ)
-that behaves similar to templ's native
+that behaves similarly to templ's native
 [`--watch`](https://templ.guide/developer-tools/live-reload/) mode but provides
 more functionality and reports all errors directly to all open browser tabs ✨.
 
@@ -36,7 +36,7 @@ Then copy-paste [example-config.yml](https://github.com/romshark/templier/blob/m
 templier --config ./templier.yml
 ```
 
-ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the directory its running in without the explicit `--config` flag.
+ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the directory it's running in without the explicit `--config` flag.
 
 ## How is Templiér different from templ's own watch mode?
 
