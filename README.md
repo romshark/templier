@@ -45,7 +45,8 @@ out of the box using `templ generate --watch --proxy="http://localhost:8080" --c
 which is great, but Templiér provides even better developer experience:
 
 - 🥶 Templiér doesn't become unresponsive when the Go code fails to compile,
-  instead it prints the compiler error output to the browser tab and keeps watching.
+  instead it prints the compiler error output to the browser tab with ANSI
+  colors preserved and keeps watching.
   Once you fixed the Go code, Templiér will reload and work as usual with no intervention.
   In contrast, templ's watcher needs to be restarted manually.
 - 📁 Templiér watches **all** file changes recursively,
