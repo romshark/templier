@@ -8,6 +8,8 @@ package server
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "github.com/romshark/templier/internal/ansihtml"
+
 func pageError(
 	title string,
 	content []Report,
@@ -40,13 +42,13 @@ func pageError(
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/server/templates.templ`, Line: 13, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/server/templates.templ`, Line: 15, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><style>\n\t\t\t\t:root {\n\t\t\t\t\t--background-color: rgb(0,0,0);\n\t\t\t\t\t--text-color: coral;\n\t\t\t\t\t--header-color: red;\n\t\t\t\t}\n\n\t\t\t\t@media (prefers-color-scheme: light) {\n\t\t\t\t\t:root {\n\t\t\t\t\t\t--background-color: rgb(255,255,255);\n\t\t\t\t\t\t--text-color: orangered;\n\t\t\t\t\t\t--header-color: red;\n\t\t\t\t\t}\n\t\t\t\t}\n\n\t\t\t\tbody {\n\t\t\t\t\tfont-family: monospace;\n\t\t\t\t\tbox-sizig: border-box;\n\t\t\t\t\tmargin: 0;\n\t\t\t\t\tpadding: 1rem;\n\t\t\t\t\tbackground-color: var(--background-color);\n\t\t\t\t\tcolor: var(--text-color);\n\t\t\t\t}\n\n\t\t\t\tbody > h3 {\n\t\t\t\t\tmargin-top: 0;\n\t\t\t\t\tcolor: var(--header-color);\n\t\t\t\t}\n\n\t\t\t\tbody > pre {\n\t\t\t\t\twhite-space: pre-wrap;\n\t\t\t\t\tcolor: var(--text-color);\n\t\t\t\t}\n\t\t\t</style></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><style>\n\t\t\t\t:root {\n\t\t\t\t\t--background-color: rgb(0,0,0);\n\t\t\t\t\t--text-color: #e6e6e6;\n\t\t\t\t\t--header-color: #ff6b6b;\n\t\t\t\t}\n\n\t\t\t\t@media (prefers-color-scheme: light) {\n\t\t\t\t\t:root {\n\t\t\t\t\t\t--background-color: rgb(255,255,255);\n\t\t\t\t\t\t--text-color: #1a1a1a;\n\t\t\t\t\t\t--header-color: #c0392b;\n\t\t\t\t\t}\n\t\t\t\t}\n\n\t\t\t\tbody {\n\t\t\t\t\tfont-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n\t\t\t\t\tbox-sizing: border-box;\n\t\t\t\t\tmargin: 0;\n\t\t\t\t\tpadding: 1rem;\n\t\t\t\t\tbackground-color: var(--background-color);\n\t\t\t\t\tcolor: var(--text-color);\n\t\t\t\t}\n\n\t\t\t\tbody > h3 {\n\t\t\t\t\tmargin-top: 0;\n\t\t\t\t\tcolor: var(--header-color);\n\t\t\t\t}\n\n\t\t\t\tbody > pre {\n\t\t\t\t\twhite-space: pre-wrap;\n\t\t\t\t\tcolor: var(--text-color);\n\t\t\t\t}\n\n\t\t\t\t.ansi-bold { font-weight: bold; }\n\t\t\t\t.ansi-dim { opacity: 0.65; }\n\t\t\t\t.ansi-fg-black   { color: #6b6b6b; }\n\t\t\t\t.ansi-fg-red     { color: #ff6b6b; }\n\t\t\t\t.ansi-fg-green   { color: #7bd88f; }\n\t\t\t\t.ansi-fg-yellow  { color: #f1d94f; }\n\t\t\t\t.ansi-fg-blue    { color: #6fa8ff; }\n\t\t\t\t.ansi-fg-magenta { color: #d98cff; }\n\t\t\t\t.ansi-fg-cyan    { color: #5bd5e6; }\n\t\t\t\t.ansi-fg-white   { color: #f2f2f2; }\n\n\t\t\t\t@media (prefers-color-scheme: light) {\n\t\t\t\t\t.ansi-fg-red     { color: #c0392b; }\n\t\t\t\t\t.ansi-fg-green   { color: #1e7b3e; }\n\t\t\t\t\t.ansi-fg-yellow  { color: #b07e00; }\n\t\t\t\t\t.ansi-fg-blue    { color: #1f5fa8; }\n\t\t\t\t\t.ansi-fg-magenta { color: #8e44ad; }\n\t\t\t\t\t.ansi-fg-cyan    { color: #0e7c86; }\n\t\t\t\t\t.ansi-fg-white   { color: #1a1a1a; }\n\t\t\t\t}\n\t\t\t</style></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -58,7 +60,7 @@ func pageError(
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(c.Subject)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/server/templates.templ`, Line: 51, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/server/templates.templ`, Line: 74, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -68,12 +70,7 @@ func pageError(
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Body)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/server/templates.templ`, Line: 52, Col: 17}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+			templ_7745c5c3_Err = templ.Raw(ansihtml.Convert(c.Body)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -116,9 +113,9 @@ func jsInjection(printDebugLogs bool, wsEventsEndpoint string, reconnectMessage 
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var5 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var5 == nil {
-			templ_7745c5c3_Var5 = templ.NopComponent
+		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var4 == nil {
+			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templ.JSONScript("_templier__jsInjection", struct {

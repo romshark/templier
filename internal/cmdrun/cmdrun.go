@@ -15,6 +15,16 @@ import (
 
 var ErrExitCode1 = errors.New("exit code 1")
 
+// forceColorEnv uses common color-output env var conventions to keep ANSI
+// colors enabled even when stdout/stderr is a pipe.
+//
+// See:
+//   - https://cmake.org/cmake/help/latest/envvar/CLICOLOR_FORCE.html
+//   - https://force-color.org/
+//
+// Templier captures that output and renders it in the browser via ansihtml.
+var forceColorEnv = []string{"FORCE_COLOR=1", "CLICOLOR_FORCE=1"}
+
 // Run runs an arbitrary command and returns (output, ErrExitCode1)
 // if it exits with error code 1, otherwise returns the original error.
 func Run(
@@ -25,9 +35,8 @@ func Run(
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = workDir
 
-	if envVars != nil {
-		c.Env = append(os.Environ(), envVars...)
-	}
+	c.Env = append(os.Environ(), forceColorEnv...)
+	c.Env = append(c.Env, envVars...)
 
 	logger.Debug("running command", "cmd", c.String())
 	out, err = c.CombinedOutput()

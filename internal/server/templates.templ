@@ -1,5 +1,7 @@
 package server
 
+import "github.com/romshark/templier/internal/ansihtml"
+
 templ pageError(
 	title string,
 	content []Report,
@@ -14,21 +16,21 @@ templ pageError(
 			<style>
 				:root {
 					--background-color: rgb(0,0,0);
-					--text-color: coral;
-					--header-color: red;
+					--text-color: #e6e6e6;
+					--header-color: #ff6b6b;
 				}
 
 				@media (prefers-color-scheme: light) {
 					:root {
 						--background-color: rgb(255,255,255);
-						--text-color: orangered;
-						--header-color: red;
+						--text-color: #1a1a1a;
+						--header-color: #c0392b;
 					}
 				}
 
 				body {
-					font-family: monospace;
-					box-sizig: border-box;
+					font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+					box-sizing: border-box;
 					margin: 0;
 					padding: 1rem;
 					background-color: var(--background-color);
@@ -44,12 +46,33 @@ templ pageError(
 					white-space: pre-wrap;
 					color: var(--text-color);
 				}
+
+				.ansi-bold { font-weight: bold; }
+				.ansi-dim { opacity: 0.65; }
+				.ansi-fg-black   { color: #6b6b6b; }
+				.ansi-fg-red     { color: #ff6b6b; }
+				.ansi-fg-green   { color: #7bd88f; }
+				.ansi-fg-yellow  { color: #f1d94f; }
+				.ansi-fg-blue    { color: #6fa8ff; }
+				.ansi-fg-magenta { color: #d98cff; }
+				.ansi-fg-cyan    { color: #5bd5e6; }
+				.ansi-fg-white   { color: #f2f2f2; }
+
+				@media (prefers-color-scheme: light) {
+					.ansi-fg-red     { color: #c0392b; }
+					.ansi-fg-green   { color: #1e7b3e; }
+					.ansi-fg-yellow  { color: #b07e00; }
+					.ansi-fg-blue    { color: #1f5fa8; }
+					.ansi-fg-magenta { color: #8e44ad; }
+					.ansi-fg-cyan    { color: #0e7c86; }
+					.ansi-fg-white   { color: #1a1a1a; }
+				}
 			</style>
 		</head>
 		<body>
 			for i, c := range content {
 				<h3>{ c.Subject }</h3>
-				<pre>{ c.Body }</pre>
+				<pre>@templ.Raw(ansihtml.Convert(c.Body))</pre>
 				if i+1 != len(content) {
 					<hr/>
 				}
