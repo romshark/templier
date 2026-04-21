@@ -383,13 +383,17 @@ func (e *Engine) runTemplierServer(
 	})
 	errgrp.Go(func() error {
 		<-srvCtx.Done()
-		// srvCtx is already cancelled by the time we get here.
-		// Bound the grace period so a hung connection can't stall shutdown indefinitely.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return httpSrv.Shutdown(shutdownCtx)
+		// Close, not Shutdown: SSE streams and keep-alives would
+		// stall Shutdown until its timeout. Browser reconnects.
+		return httpSrv.Close()
 	})
-	return errgrp.Wait()
+	err := errgrp.Wait()
+	// http.Server.Close returns ErrServerClosed from the concurrent
+	// ListenAndServe call; that's just the normal shutdown signal.
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func (e *Engine) runAppLauncher(
