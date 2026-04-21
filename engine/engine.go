@@ -315,11 +315,18 @@ func (e *Engine) Run(ctx context.Context) error {
 		e.logger.Info("templier started", "url", templierBaseURL.String())
 	}
 
-	if err := errgrp.Wait(); err != nil {
-		e.logger.Debug("sub-process failure", "err", err)
+	runErr := errgrp.Wait()
+	if runErr != nil {
+		e.logger.Debug("sub-process failure", "err", runErr)
 	}
 	e.logger.Debug("waiting for remaining sub-processes to shut down")
 	wg.Wait()
+	// Return the sub-process error (e.g. an HTTP server that failed to bind the
+	// templier port) instead of swallowing it. Without this the caller can't
+	// distinguish a normal shutdown from a fatal startup failure.
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		return runErr
+	}
 	return nil
 }
 
@@ -356,7 +363,12 @@ func (e *Engine) runTemplierServer(
 		),
 	}
 
-	var errgrp errgroup.Group
+	// Use WithContext so a ListenAndServe failure
+	// (e.g. EADDRINUSE from a port already bound by another templier instance)
+	// cancels the paired Shutdown goroutine immediately, instead of it blocking on
+	// the parent context. Without this the outer Run hangs because its own Wait is
+	// stuck on this function returning.
+	errgrp, srvCtx := errgroup.WithContext(ctx)
 	errgrp.Go(func() error {
 		var err error
 		if e.conf.TLS != nil {
@@ -370,8 +382,12 @@ func (e *Engine) runTemplierServer(
 		return err
 	})
 	errgrp.Go(func() error {
-		<-ctx.Done()
-		return httpSrv.Shutdown(ctx)
+		<-srvCtx.Done()
+		// srvCtx is already cancelled by the time we get here.
+		// Bound the grace period so a hung connection can't stall shutdown indefinitely.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return httpSrv.Shutdown(shutdownCtx)
 	})
 	return errgrp.Wait()
 }
