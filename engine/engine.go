@@ -547,6 +547,14 @@ func (e *Engine) runAppLauncher(
 				rerun(ctx)
 			})
 		case newBinaryPath := <-e.chRunNewServer:
+			if newBinaryPath == "" {
+				// Defensive: recompile() should already filter empty
+				// paths, but if anything ever forwards one here we
+				// must not overwrite latestBinaryPath with "" or call
+				// rerun, which would exec("") → "exec: no command".
+				e.logger.Debug("ignoring empty binary path on chRunNewServer")
+				continue
+			}
 			runner.Go(ctx, func(ctx context.Context) {
 				if latestBinaryPath != "" {
 					e.logger.Debug("remove executable", "path", latestBinaryPath)
@@ -721,6 +729,13 @@ func (h *fileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 			)
 			if h.stateTracker.ErrIndex() != -1 {
 				h.reload.BroadcastNonblock()
+				return
+			}
+			if newBinaryPath == "" {
+				// Build was superseded (ctx canceled by a newer
+				// recompile). Forwarding an empty path would make
+				// the launcher exec("") and loop on
+				// "exec: no command".
 				return
 			}
 			h.engine.chRunNewServer <- newBinaryPath

@@ -107,30 +107,7 @@ func RunTemplWatch(
 		// Read the command output
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			b := scanner.Bytes()
-			logger.Debug("templ", "output", string(b))
-			switch {
-			case bytes.HasPrefix(b, bytesPrefixWarning):
-				st.Set(statetrack.IndexTempl, scanner.Text())
-			case bytes.HasPrefix(b, bytesPrefixErr):
-				st.Set(statetrack.IndexTempl, scanner.Text())
-			case bytes.HasPrefix(b, bytesPrefixErrCleared):
-				st.Set(statetrack.IndexTempl, "")
-			}
-			if after, found := bytes.CutPrefix(b, bytesPrefixPostGenEvent); found {
-				switch {
-				case bytes.Contains(after, bytesNeedsRestart):
-					select {
-					case templChange <- TemplChangeNeedsRestart:
-					default:
-					}
-				case bytes.Contains(after, bytesNeedsBrowserReload):
-					select {
-					case templChange <- TemplChangeNeedsBrowserReload:
-					default:
-					}
-				}
-			}
+			handleTemplOutputLine(scanner.Bytes(), logger, st, templChange)
 		}
 		if err := scanner.Err(); err != nil {
 			logger.Error("scanning templ watch output", "err", err)
@@ -150,6 +127,48 @@ func RunTemplWatch(
 		return err
 	}
 	return nil
+}
+
+// handleTemplOutputLine classifies one line from `templ generate --watch`
+// stdout and updates state / change channels accordingly.
+//
+// Warnings ("(!)") are intentionally not written to IndexTempl. Templ
+// emits them for benign conditions (version-check FYIs, deprecation
+// notes, "templ not found in go.mod" for non-templ projects, CLI vs
+// go.mod version skew). The engine treats any non-empty IndexTempl as
+// a hard error that gates initial build and every subsequent rebuild,
+// so conflating warnings with errors silently disables templier
+// whenever templ has anything chatty to say. Only "(✗)" lines are
+// actual generator errors.
+func handleTemplOutputLine(
+	b []byte,
+	logger *slog.Logger,
+	st *statetrack.Tracker,
+	templChange chan<- TemplChange,
+) {
+	logger.Debug("templ", "output", string(b))
+	switch {
+	case bytes.HasPrefix(b, bytesPrefixWarning):
+		logger.Warn("templ", "output", string(b))
+	case bytes.HasPrefix(b, bytesPrefixErr):
+		st.Set(statetrack.IndexTempl, string(b))
+	case bytes.HasPrefix(b, bytesPrefixErrCleared):
+		st.Set(statetrack.IndexTempl, "")
+	}
+	if after, found := bytes.CutPrefix(b, bytesPrefixPostGenEvent); found {
+		switch {
+		case bytes.Contains(after, bytesNeedsRestart):
+			select {
+			case templChange <- TemplChangeNeedsRestart:
+			default:
+			}
+		case bytes.Contains(after, bytesNeedsBrowserReload):
+			select {
+			case templChange <- TemplChangeNeedsBrowserReload:
+			default:
+			}
+		}
+	}
 }
 
 var (
