@@ -87,7 +87,7 @@ fails, their error output will be shown directly in the browser.
 custom-watchers:
   - name: Bundle JS
     cmd: npm run bundle:js
-    include: ["*.js"]
+    include: ["**/*.js", "**/*.jsx"]
     exclude: ["path/to/your/dist.js"]
     fail-on-error: true
     debounce:
@@ -108,36 +108,28 @@ The `cmd` above refers to a script defined in `package.json` scripts:
 
 [TailwindCSS](https://tailwindcss.com/) and [PostCSS](https://postcss.org/) are often
 used to simplify CSS styling, and a custom watcher enables Templiér to hot-reload the
-styles on changes:
+styles on changes. This example uses the Tailwind CSS v4 PostCSS setup:
 
-First, configure `postcss.config.js`:
+First, configure `postcss.config.mjs`:
 
 ```js
-module.exports = {
-  content: [
-    "./server/**/*.templ", // Include any .templ files
-  ],
-  plugins: [require("tailwindcss"), require("autoprefixer")],
+export default {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
 };
 ```
 
-and `tailwind.config.js`:
+Add Tailwind to your `input.css`:
 
-```js
-/** @type {import('tailwindcss').Config} */
-module.exports = {
-  content: ["./**/*.{html,js,templ}"],
-  theme: {
-    extend: {},
-  },
-  plugins: [require("tailwindcss"), require("autoprefixer")],
-};
+```css
+@import "tailwindcss";
 ```
 
 Create a `package.json` file and install all necessary dev dependencies:
 
 ```sh
-npm install tailwindcss postcss postcss-cli autoprefixer --save-dev
+npm install tailwindcss @tailwindcss/postcss postcss postcss-cli --save-dev
 ```
 
 Add the scripts to `package.json` (where `input.css` is your main CSS
@@ -147,7 +139,7 @@ output file that's linked to in your HTML):
 ```json
 "scripts": {
   "build:css": "postcss ./input.css -o ./public/dist.css",
-  "watch:css": "tailwindcss -i ./input.css -o ./public/dist.css --watch"
+  "watch:css": "postcss ./input.css -o ./public/dist.css --watch"
 },
 ```
 
@@ -156,8 +148,8 @@ Finally, define a Templiér custom watcher to watch all Templ and CSS files and 
 ```yaml
 - name: Build CSS
   cmd: npm run build:css
-  include: ["*.templ", "input.css"]
-  exclude: ["path/to/your/dist.css"]
+  include: ["**/*.templ", "input.css"]
+  exclude: ["public/**/*.css"]
   fail-on-error: true
   debounce:
   requires: reload
