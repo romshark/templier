@@ -109,28 +109,7 @@ func RunTemplWatch(
 		for scanner.Scan() {
 			b := scanner.Bytes()
 			logger.Debug("templ", "output", string(b))
-			switch {
-			case bytes.HasPrefix(b, bytesPrefixWarning):
-				st.Set(statetrack.IndexTempl, scanner.Text())
-			case bytes.HasPrefix(b, bytesPrefixErr):
-				st.Set(statetrack.IndexTempl, scanner.Text())
-			case bytes.HasPrefix(b, bytesPrefixErrCleared):
-				st.Set(statetrack.IndexTempl, "")
-			}
-			if after, found := bytes.CutPrefix(b, bytesPrefixPostGenEvent); found {
-				switch {
-				case bytes.Contains(after, bytesNeedsRestart):
-					select {
-					case templChange <- TemplChangeNeedsRestart:
-					default:
-					}
-				case bytes.Contains(after, bytesNeedsBrowserReload):
-					select {
-					case templChange <- TemplChangeNeedsBrowserReload:
-					default:
-					}
-				}
-			}
+			handleTemplWatchLine(b, st, templChange)
 		}
 		if err := scanner.Err(); err != nil {
 			logger.Error("scanning templ watch output", "err", err)
@@ -150,6 +129,35 @@ func RunTemplWatch(
 		return err
 	}
 	return nil
+}
+
+func handleTemplWatchLine(
+	line []byte,
+	st *statetrack.Tracker,
+	templChange chan<- TemplChange,
+) {
+	switch {
+	case bytes.HasPrefix(line, bytesPrefixWarning):
+		return // Warnings must not block Go rebuilds.
+	case bytes.HasPrefix(line, bytesPrefixErr):
+		st.Set(statetrack.IndexTempl, string(line))
+	case bytes.HasPrefix(line, bytesPrefixErrCleared):
+		st.Set(statetrack.IndexTempl, "")
+	}
+	if after, found := bytes.CutPrefix(line, bytesPrefixPostGenEvent); found {
+		switch {
+		case bytes.Contains(after, bytesNeedsRestart):
+			select {
+			case templChange <- TemplChangeNeedsRestart:
+			default:
+			}
+		case bytes.Contains(after, bytesNeedsBrowserReload):
+			select {
+			case templChange <- TemplChangeNeedsBrowserReload:
+			default:
+			}
+		}
+	}
 }
 
 var (
