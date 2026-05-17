@@ -178,15 +178,15 @@ to rebuild the server. Restarting it may be sufficient:
 Templiér acts as a file watcher, proxy server and process manager.
 Once Templiér is started, it runs `templ generate --watch` in the background and begins
 watching files in the `app.dir-src-root` directory.
-On start and on file change, it automatically builds your application server executable
-and saves it in the OS temp directory (cleaned up on exit at the latest), assuming that
+On start, it runs all configured custom watchers and then builds your application server
+executable in the OS temp directory (cleaned up on exit at the latest), assuming that
 the main package is specified by the `app.dir-cmd` directory.
 Custom Go compiler arguments can be specified with `compiler`. Once built, the application server
 executable is launched with `app.flags` CLI parameters and the working directory
-set to `app.dir-work`. When necessary, the application server process is shut down
-gracefully, rebuilt, linted and restarted.
-On `.templ` file changes Templiér only tries to compile and lint the server code
-without refreshing the page.
+set to `app.dir-work`. On file changes, Templiér runs matching custom watchers and
+then reloads, restarts, or rebuilds the app server depending on the configured action.
+For `.templ` changes, `templ generate --watch` handles code generation and tells
+Templiér whether the browser should reload or the app server should rebuild.
 
 Templiér hosts your application under the URL specified by `templier-host` and proxies
 all requests to the application server process it launches, injecting Templiér
