@@ -547,6 +547,10 @@ func (e *Engine) runAppLauncher(
 				rerun(ctx)
 			})
 		case newBinaryPath := <-e.chRunNewServer:
+			if newBinaryPath == "" {
+				e.logger.Debug("skip empty app server binary path")
+				continue
+			}
 			runner.Go(ctx, func(ctx context.Context) {
 				if latestBinaryPath != "" {
 					e.logger.Debug("remove executable", "path", latestBinaryPath)
@@ -721,6 +725,9 @@ func (h *fileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 			)
 			if h.stateTracker.ErrIndex() != -1 {
 				h.reload.BroadcastNonblock()
+				return
+			}
+			if newBinaryPath == "" {
 				return
 			}
 			h.engine.chRunNewServer <- newBinaryPath
