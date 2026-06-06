@@ -287,6 +287,17 @@ func (e *Engine) Run(ctx context.Context) error {
 			`adding ignore templ temp files filter to watcher ("*.templ*"): %w`, err)
 	}
 
+	// User-supplied watcher ignores. Must run before fsWatcher.Add so
+	// matched subtrees skip both the directory-add walk and Run()'s
+	// file-registration walk — the latter is where pnpm's node_modules
+	// platform-binary symlinks would otherwise crash xxhash on a dir.
+	for _, pattern := range e.conf.WatcherIgnore {
+		if err := fsWatcher.Ignore(pattern); err != nil {
+			return fmt.Errorf(
+				"adding WatcherIgnore[%q] filter to watcher: %w", pattern, err)
+		}
+	}
+
 	if err := fsWatcher.Add(e.conf.App.DirSrcRoot); err != nil {
 		return fmt.Errorf("setting up file watcher for DirSrcRoot(%q): %w",
 			e.conf.App.DirSrcRoot, err)

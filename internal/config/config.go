@@ -59,6 +59,15 @@ type Config struct {
 
 	// CustomWatchers defines custom file change watchers.
 	CustomWatchers []ConfigCustomWatcher `yaml:"custom-watchers"`
+
+	// WatcherIgnore lists doublestar glob patterns (relative to
+	// app.dir-src-root) applied to the fs watcher's Ignore set before
+	// the initial walk. Matched paths produce no events — neither for
+	// the rebuild path nor for any custom watcher. Distinct from
+	// app.exclude (which only gates app rebuilds). Use for pnpm
+	// node_modules and similar trees whose platform-binary directory
+	// symlinks would otherwise crash the registration walk.
+	WatcherIgnore GlobList `yaml:"watcher-ignore"`
 }
 
 type ConfigApp struct {
@@ -445,11 +454,12 @@ func toEngineConfig(c *Config) engine.Config {
 			Flags:      []string(c.App.Flags),
 			Host:       c.App.Host.URL,
 		},
-		Debounce:     c.Debounce,
-		ProxyTimeout: c.ProxyTimeout,
-		Lint:         c.Lint,
-		Format:       c.Format,
-		TemplierHost: c.TemplierHost,
+		Debounce:      c.Debounce,
+		ProxyTimeout:  c.ProxyTimeout,
+		Lint:          c.Lint,
+		Format:        c.Format,
+		TemplierHost:  c.TemplierHost,
+		WatcherIgnore: []string(c.WatcherIgnore),
 		Log: engine.LogConfig{
 			Level:            engine.LogLevel(c.Log.Level),
 			ClearOn:          engine.LogClearOn(c.Log.ClearOn),
