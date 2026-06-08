@@ -119,17 +119,11 @@ app:
   # to the application server executable.
   flags: -host your-application:12000
 
-# watcher-ignore lists doublestar glob patterns (relative to
-# app.dir-src-root) applied to the fs watcher's Ignore set before the
-# initial walk. Matched paths produce no events — neither for app
-# rebuilds nor for any custom-watcher. Distinct from app.exclude, which
-# only gates app rebuilds. Use for pnpm node_modules and similar trees
-# whose platform-binary directory symlinks would otherwise crash the
-# registration walk on `os.Open` → directory → xxhash EISDIR.
-#
-# doublestar v4's trailing `/**` matches zero-or-more segments including
-# the preceding separator, so one `dir/**` covers both the directory
-# and every descendant — no paired form needed.
+# watcher-ignore lists glob patterns (relative to app.dir-src-root)
+# fully excluded from the file watcher — no events at all, unlike
+# app.exclude which only gates rebuilds. Use for node_modules and
+# similar trees you never want watched. A trailing `/**` (as in
+# `dir/**`) matches the directory and all its descendants.
 watcher-ignore:
   - "**/node_modules/**"
 

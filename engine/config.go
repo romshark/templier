@@ -99,7 +99,7 @@ type Config struct {
 	// CustomWatchers defines additional file watchers with custom commands.
 	CustomWatchers []CustomWatcherConfig
 
-	// WatcherIgnore is a list of doublestar glob patterns (relative to
+	// WatcherIgnore is a list of glob patterns (relative to
 	// App.DirSrcRoot) applied to the fs watcher's Ignore set before
 	// the initial walk. Matched paths are excluded from both the
 	// directory subscription and the startup file-checksum

@@ -60,11 +60,9 @@ type Config struct {
 	// CustomWatchers defines custom file change watchers.
 	CustomWatchers []ConfigCustomWatcher `yaml:"custom-watchers"`
 
-	// WatcherIgnore lists doublestar glob patterns (relative to
-	// app.dir-src-root) applied to the fs watcher's Ignore set before
-	// the initial walk. Matched paths produce no events — neither for
-	// the rebuild path nor for any custom watcher. Distinct from
-	// app.exclude (which only gates app rebuilds).
+	// WatcherIgnore lists glob patterns (relative to
+	// app.dir-src-root) fully excluded from the fs watcher — no events at
+	// all, unlike app.exclude which only gates rebuilds.
 	WatcherIgnore GlobList `yaml:"watcher-ignore"`
 }
 
