@@ -98,8 +98,9 @@ app:
   # app.dir-src-root defines the path to the Go module source root directory.
   dir-src-root: ./
 
-  # app.exclude defines glob filter expressions relative to app.dir-src-root
-  # to match files excluded from rebuild/restart.
+  # app.exclude is a list of glob patterns for files that must not trigger an
+  # app rebuild/restart. Matched files are still watched, so custom watchers still
+  # fire for them; use WatcherIgnore to drop paths entirely.
   exclude:
     - .* # all hidden files and directories
     - "*~" # all temporary files with a tilde (fixes jetbrains IDEs save)
@@ -118,6 +119,13 @@ app:
   # app.flags defines the CLI arguments as a string provided
   # to the application server executable.
   flags: -host your-application:12000
+
+# watcher-ignore lists glob patterns (relative to app.dir-src-root)
+# fully excluded from the file watcher — no events at all, unlike
+# app.exclude which only gates rebuilds. Use for node_modules and
+# similar trees you never want watched.
+watcher-ignore:
+  - "**/node_modules/**"
 
 # custom-watchers defines custom file change watchers executing arbitrary commands
 # on certain file changes that isn't covered by a standard Templiér setup.

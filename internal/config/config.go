@@ -59,6 +59,11 @@ type Config struct {
 
 	// CustomWatchers defines custom file change watchers.
 	CustomWatchers []ConfigCustomWatcher `yaml:"custom-watchers"`
+
+	// WatcherIgnore lists glob patterns (relative to
+	// app.dir-src-root) fully excluded from the fs watcher — no events at
+	// all, unlike app.exclude which only gates rebuilds.
+	WatcherIgnore GlobList `yaml:"watcher-ignore"`
 }
 
 type ConfigApp struct {
@@ -67,7 +72,9 @@ type ConfigApp struct {
 
 	dirSrcRootAbsolute string `yaml:"-"` // Initialized from DirSrcRoot
 
-	// Exclude defines glob expressions to match files excluded from rebuild/restart.
+	// Exclude defines glob patterns for files that must not trigger an app
+	// rebuild/restart. Matched files are still watched, so custom watchers
+	// still fire for them; use watcher-ignore to drop paths entirely.
 	Exclude GlobList `yaml:"exclude"`
 
 	// DirCmd is the server cmd directory containing the `main` function.
@@ -384,7 +391,7 @@ func MustParse(version, commit, date string) engine.Config {
 			os.Exit(1)
 		}
 	}
-	err := yamagiconf.LoadFile(fConfigPath, &conf)
+	err := yamagiconf.LoadFile(fConfigPath, &conf, yamagiconf.WithOptionalPresence())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "reading config file: %v\n", err)
 		os.Exit(1)
@@ -445,11 +452,12 @@ func toEngineConfig(c *Config) engine.Config {
 			Flags:      []string(c.App.Flags),
 			Host:       c.App.Host.URL,
 		},
-		Debounce:     c.Debounce,
-		ProxyTimeout: c.ProxyTimeout,
-		Lint:         c.Lint,
-		Format:       c.Format,
-		TemplierHost: c.TemplierHost,
+		Debounce:      c.Debounce,
+		ProxyTimeout:  c.ProxyTimeout,
+		Lint:          c.Lint,
+		Format:        c.Format,
+		TemplierHost:  c.TemplierHost,
+		WatcherIgnore: []string(c.WatcherIgnore),
 		Log: engine.LogConfig{
 			Level:            engine.LogLevel(c.Log.Level),
 			ClearOn:          engine.LogClearOn(c.Log.ClearOn),
