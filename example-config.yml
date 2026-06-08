@@ -99,7 +99,7 @@ app:
   dir-src-root: ./
 
   # app.exclude is a list of glob patterns for files that must not trigger an
-	# app rebuild/restart. Matched files are still watched, so custom watchers still
+  # app rebuild/restart. Matched files are still watched, so custom watchers still
   # fire for them; use WatcherIgnore to drop paths entirely.
   exclude:
     - .* # all hidden files and directories
