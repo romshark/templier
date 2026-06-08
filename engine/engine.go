@@ -287,10 +287,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			`adding ignore templ temp files filter to watcher ("*.templ*"): %w`, err)
 	}
 
-	// User-supplied watcher ignores. Must run before fsWatcher.Add so
-	// matched subtrees skip both the directory-add walk and Run()'s
-	// file-registration walk — the latter is where pnpm's node_modules
-	// platform-binary symlinks would otherwise crash xxhash on a dir.
+	// Must run before fsWatcher.Add so matched subtrees skip both the
+	// directory-add walk and the file-registration walk.
 	for _, pattern := range e.conf.WatcherIgnore {
 		if err := fsWatcher.Ignore(pattern); err != nil {
 			return fmt.Errorf(
