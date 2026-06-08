@@ -64,9 +64,7 @@ type Config struct {
 	// app.dir-src-root) applied to the fs watcher's Ignore set before
 	// the initial walk. Matched paths produce no events — neither for
 	// the rebuild path nor for any custom watcher. Distinct from
-	// app.exclude (which only gates app rebuilds). Use for pnpm
-	// node_modules and similar trees whose platform-binary directory
-	// symlinks would otherwise crash the registration walk.
+	// app.exclude (which only gates app rebuilds).
 	WatcherIgnore GlobList `yaml:"watcher-ignore"`
 }
 
@@ -393,7 +391,7 @@ func MustParse(version, commit, date string) engine.Config {
 			os.Exit(1)
 		}
 	}
-	err := yamagiconf.LoadFile(fConfigPath, &conf)
+	err := yamagiconf.LoadFile(fConfigPath, &conf, yamagiconf.WithOptionalPresence())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "reading config file: %v\n", err)
 		os.Exit(1)
