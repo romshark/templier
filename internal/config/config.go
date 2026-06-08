@@ -72,7 +72,9 @@ type ConfigApp struct {
 
 	dirSrcRootAbsolute string `yaml:"-"` // Initialized from DirSrcRoot
 
-	// Exclude defines glob expressions to match files excluded from rebuild/restart.
+	// Exclude defines glob patterns for files that must not trigger an app
+	// rebuild/restart. Matched files are still watched, so custom watchers
+	// still fire for them; use watcher-ignore to drop paths entirely.
 	Exclude GlobList `yaml:"exclude"`
 
 	// DirCmd is the server cmd directory containing the `main` function.

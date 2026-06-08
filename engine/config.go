@@ -124,7 +124,9 @@ type AppConfig struct {
 	// DirSrcRoot is the absolute path to the source root directory to watch.
 	DirSrcRoot string
 
-	// Exclude is a list of glob patterns to exclude from watching.
+	// Exclude is a list of glob patterns for files that must not trigger an
+	// app rebuild/restart. Matched files are still watched, so custom
+	// watchers still fire for them; use WatcherIgnore to drop paths entirely.
 	Exclude []string
 
 	// DirCmd is the path to the Go command to build (e.g., "./cmd/server/").

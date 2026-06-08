@@ -98,8 +98,9 @@ app:
   # app.dir-src-root defines the path to the Go module source root directory.
   dir-src-root: ./
 
-  # app.exclude defines glob filter expressions relative to app.dir-src-root
-  # to match files excluded from rebuild/restart.
+  # app.exclude is a list of glob patterns for files that must not trigger an
+	# app rebuild/restart. Matched files are still watched, so custom watchers still
+  # fire for them; use WatcherIgnore to drop paths entirely.
   exclude:
     - .* # all hidden files and directories
     - "*~" # all temporary files with a tilde (fixes jetbrains IDEs save)
