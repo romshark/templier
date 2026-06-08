@@ -81,6 +81,34 @@ func Test(t *testing.T) {
 	})
 }
 
+func TestFilesSkipsDirSymlink(t *testing.T) {
+	d := t.TempDir()
+
+	realFile := filepath.Join(d, "real.txt")
+	realDir := filepath.Join(d, "realdir")
+	realDir_file := filepath.Join(realDir, "inner.txt")
+	WriteFile(t, realFile, "real")
+	WriteFile(t, realDir_file, "inner")
+
+	// Symlink to a directory: must be skipped, not opened as a file.
+	dirLink := filepath.Join(d, "dirlink")
+	require.NoError(t, os.Symlink(realDir, dirLink))
+	// Symlink to a file: must still be visited (current behavior).
+	fileLink := filepath.Join(d, "filelink")
+	require.NoError(t, os.Symlink(realFile, fileLink))
+
+	actual := []string{}
+	err := fswalk.Files(d, func(name string) error {
+		actual = append(actual, name)
+		return nil
+	})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{
+		realFile, realDir_file, fileLink,
+	}, actual)
+	require.NotContains(t, actual, dirLink)
+}
+
 func TestFilesFnErr(t *testing.T) {
 	d := t.TempDir()
 
