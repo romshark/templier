@@ -123,8 +123,7 @@ app:
 # watcher-ignore lists glob patterns (relative to app.dir-src-root)
 # fully excluded from the file watcher — no events at all, unlike
 # app.exclude which only gates rebuilds. Use for node_modules and
-# similar trees you never want watched. A trailing `/**` (as in
-# `dir/**`) matches the directory and all its descendants.
+# similar trees you never want watched.
 watcher-ignore:
   - "**/node_modules/**"
 
