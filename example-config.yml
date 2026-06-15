@@ -12,6 +12,13 @@ format: true
 # templier-host defines what host address to run Templiér on.
 templier-host: "your-application:11000"
 
+# templ-cmd defines the command used to run templ for code generation
+# and formatting. Defaults to "templ" which requires templ to be
+# installed and available in your $PATH.
+# Use "go tool templ" instead if you have templ installed as a Go tool
+# dependency (see: https://go.dev/blog/tools.go).
+templ-cmd: templ
+
 log:
   # level allows you to chose from different log levels:
   #  "" (empty): same as erronly.

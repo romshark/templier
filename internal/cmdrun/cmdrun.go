@@ -54,9 +54,9 @@ func Sh(ctx context.Context, workDir string, logger *slog.Logger, sh string) (ou
 	return Run(ctx, workDir, nil, logger, "sh", "-c", sh)
 }
 
-// RunTemplFmt runs `templ fmt <path>`.
-func RunTemplFmt(ctx context.Context, workDir string, path string) error {
-	cmd := exec.Command("templ", "fmt", "-fail", path)
+// RunTemplFmt runs `<templCmd> fmt <path>`.
+func RunTemplFmt(ctx context.Context, workDir string, templCmd []string, path string) error {
+	cmd := exec.CommandContext(ctx, templCmd[0], append(templCmd[1:], "fmt", "-fail", path)...)
 	cmd.Dir = workDir
 	return cmd.Run()
 }
@@ -69,27 +69,29 @@ const (
 	TemplChangeNeedsBrowserReload
 )
 
-// RunTemplWatch starts `templ generate --log-level debug --watch` and reads its
+// RunTemplWatch starts `<templCmd> generate --log-level debug --watch` and reads its
 // stdout pipe for failure and success logs updating the state accordingly.
 // When ctx is canceled the interrupt signal is sent to the watch process
 // and graceful shutdown is awaited.
 func RunTemplWatch(
 	ctx context.Context,
 	workDir string,
+	templCmd []string,
 	logger *slog.Logger,
 	st *statetrack.Tracker,
 	templChange chan<- TemplChange,
 ) error {
 	// Don't use CommandContext since it will kill the process
 	// which we don't want. We want the command to finish.
-	cmd := exec.Command(
-		"templ", "generate",
+	args := append(append([]string{}, templCmd[1:]...),
+		"generate",
 		"--watch",
 		"--log-level", "debug",
 		// Disable Templ's new native Go watcher to avoid any collisions
 		// since Templier is already watching .go file changes.
 		"--watch-pattern", `(.+\.templ$)`,
 	)
+	cmd := exec.Command(templCmd[0], args...)
 	cmd.Dir = workDir
 
 	stdout, err := cmd.StderrPipe()
