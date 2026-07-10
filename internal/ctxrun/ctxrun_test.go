@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/romshark/templier/internal/ctxrun"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestRunner(t *testing.T) {
@@ -22,7 +22,7 @@ func TestRunner(t *testing.T) {
 		ctxErrAfter <- ctx.Err()
 	})
 
-	require.NoError(t, <-ctxErrBefore)
+	assert.NoError(t, <-ctxErrBefore)
 
 	ctxErrBefore2 := make(chan error, 1)
 	r.Go(context.Background(), func(ctx context.Context) {
@@ -32,8 +32,8 @@ func TestRunner(t *testing.T) {
 	// Unblock first goroutine to read its context error.
 	blockFirstGoroutine <- struct{}{}
 
-	require.NoError(t, <-ctxErrBefore2)
-	require.Equal(t, context.Canceled, <-ctxErrAfter)
+	assert.NoError(t, <-ctxErrBefore2)
+	assert.Equal(t, context.Canceled, <-ctxErrAfter)
 }
 
 // TestRunnerPassCtx makes sure the context passed to Go is the same
@@ -52,5 +52,5 @@ func TestRunnerPassCtx(t *testing.T) {
 		ctxValue <- ctx.Value(ctxKeyValue).(int)
 	})
 
-	require.Equal(t, 42, <-ctxValue)
+	assert.Equal(t, 42, <-ctxValue)
 }

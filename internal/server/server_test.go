@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/romshark/templier/internal/server"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 	"golang.org/x/net/html"
 )
 
@@ -18,18 +18,18 @@ func TestRenderErrPage(t *testing.T) {
 			{Subject: "Test Subject", Body: "Test Body"},
 		}, true, "reconnecting...",
 	)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	_, err = html.Parse(bytes.NewReader(buf.Bytes()))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestMustRenderJSInjection(t *testing.T) {
 	jsInjection := server.MustRenderJSInjection(context.Background(), true, "reconnecting...")
-	require.NotEmpty(t, jsInjection)
+	assert.NotZero(t, len(jsInjection))
 
 	_, err := html.Parse(bytes.NewReader(jsInjection))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestInjectInBody(t *testing.T) {
@@ -39,19 +39,19 @@ func TestInjectInBody(t *testing.T) {
 		t.Helper()
 
 		body, err := os.ReadFile(bodyInputFilePath)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		expected, err := os.ReadFile(expectBodyOutputFilePath)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		originalInjectionBytes := string(jsInjection)
 
 		var buf bytes.Buffer
 		err = server.WriteWithInjection(&buf, []byte(body), jsInjection)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		actual := buf.String()
-		require.Equal(t, string(expected), actual)
-		require.Equal(t, originalInjectionBytes, string(jsInjection),
+		assert.Equal(t, string(expected), actual)
+		assert.Equal(t, originalInjectionBytes, string(jsInjection),
 			"mutation of original injection bytes")
 	}
 

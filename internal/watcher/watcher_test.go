@@ -12,7 +12,7 @@ import (
 	"github.com/romshark/templier/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestWatcher(t *testing.T) {
@@ -22,7 +22,7 @@ func TestWatcher(t *testing.T) {
 	// Create a sub-directory that exists even before Run
 	MustMkdir(t, base, "existing-subdir")
 
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(base))
 
 	ExpectWatched(t, w, []string{
 		base,
@@ -97,12 +97,12 @@ func TestWatcher(t *testing.T) {
 	// Renaming may generate 1 or 2 events depending on platform
 	MustRename(t, filepath.Join(base, "newdir"), filepath.Join(base, "newname"))
 	renameEvents := collectEvents(1, 2*time.Second)
-	require.NotEmpty(t, renameEvents, "expected at least one event for rename")
+	assert.NotZero(t, len(renameEvents), "expected at least one event for rename")
 	events = append(events, renameEvents...)
 
 	// After rename, we need to re-add the new directory to watch it
 	// because the watcher removes the old path on rename
-	require.NoError(t, w.Add(filepath.Join(base, "newname")))
+	assert.NoError(t, w.Add(filepath.Join(base, "newname")))
 
 	ExpectWatched(t, w, []string{
 		base,
@@ -157,8 +157,8 @@ func TestTemplTempFiles(t *testing.T) {
 	base, notifications := t.TempDir(), make(chan fsnotify.Event)
 	w := runNewWatcher(t, base, notifications)
 
-	require.NoError(t, w.Ignore("*.templ[0-9]*"))
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Ignore("*.templ[0-9]*"))
+	assert.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{base})
 
 	events := make([]fsnotify.Event, 3)
@@ -217,31 +217,31 @@ func TestWatcherRunCancelContext(t *testing.T) {
 	w, err := watcher.New(base, slog.Default(), func(ctx context.Context, e fsnotify.Event) error {
 		return nil
 	})
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	chErr := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { chErr <- w.Run(ctx) }()
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(base))
 	w.WaitRunning()
 
 	ExpectWatched(t, w, []string{base})
 
 	cancel()
-	require.ErrorIs(t, <-chErr, context.Canceled)
+	assert.IsError(t, <-chErr, context.Canceled)
 
-	require.ErrorIs(t, w.Add("new"), watcher.ErrClosed)
-	require.ErrorIs(t, w.Remove("new"), watcher.ErrClosed)
-	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrClosed)
-	require.ErrorIs(t, w.Ignore(".ignored"), watcher.ErrClosed)
+	assert.IsError(t, w.Add("new"), watcher.ErrClosed)
+	assert.IsError(t, w.Remove("new"), watcher.ErrClosed)
+	assert.IsError(t, w.Run(context.Background()), watcher.ErrClosed)
+	assert.IsError(t, w.Ignore(".ignored"), watcher.ErrClosed)
 	ExpectWatched(t, w, []string{})
 }
 
 func TestWatcherErrRunning(t *testing.T) {
 	base := t.TempDir()
 	w := runNewWatcher(t, base, nil)
-	require.NoError(t, w.Add(base)) // Wait for the runner to start
-	require.ErrorIs(t, w.Run(context.Background()), watcher.ErrRunning)
+	assert.NoError(t, w.Add(base)) // Wait for the runner to start
+	assert.IsError(t, w.Run(context.Background()), watcher.ErrRunning)
 }
 
 func TestWatcherAdd_AlreadyWatched(t *testing.T) {
@@ -249,9 +249,9 @@ func TestWatcherAdd_AlreadyWatched(t *testing.T) {
 	w := runNewWatcher(t, base, nil)
 
 	ExpectWatched(t, w, []string{})
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{base})
-	require.NoError(t, w.Add(base)) // Add again
+	assert.NoError(t, w.Add(base)) // Add again
 	ExpectWatched(t, w, []string{base})
 }
 
@@ -267,7 +267,7 @@ func TestWatcherRemove(t *testing.T) {
 
 	ExpectWatched(t, w, []string{})
 
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{
 		base,
 		filepath.Join(base, "sub"),
@@ -277,7 +277,7 @@ func TestWatcherRemove(t *testing.T) {
 		filepath.Join(base, "sub2"),
 	})
 
-	require.NoError(t, w.Remove(filepath.Join(base, "sub", "subsub2", "subsubsub")))
+	assert.NoError(t, w.Remove(filepath.Join(base, "sub", "subsub2", "subsubsub")))
 	ExpectWatched(t, w, []string{
 		base,
 		filepath.Join(base, "sub"),
@@ -286,7 +286,7 @@ func TestWatcherRemove(t *testing.T) {
 		filepath.Join(base, "sub2"),
 	})
 
-	require.NoError(t, w.Remove(base))
+	assert.NoError(t, w.Remove(base))
 	ExpectWatched(t, w, []string{})
 }
 
@@ -303,18 +303,18 @@ func TestWatcherIgnore(t *testing.T) {
 		lock.Unlock()
 		return nil
 	})
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() { _ = w.Run(ctx) }()
 	w.WaitRunning()
 
-	require.NoError(t, w.Add(base))
-	require.NoError(t, w.Add(filepath.Join(base, ".hidden")))
+	assert.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(filepath.Join(base, ".hidden")))
 	ExpectWatched(t, w, []string{base, filepath.Join(base, ".hidden")})
 
-	require.NoError(t, w.Ignore(".*"))
+	assert.NoError(t, w.Ignore(".*"))
 	ExpectWatched(t, w, []string{base})
 
 	// These should be ignored
@@ -343,8 +343,8 @@ func TestWatcherIgnore(t *testing.T) {
 
 	// Verify no events for ignored files
 	for _, e := range eventsCopy {
-		require.NotContains(t, e.Name, ".ignore")
-		require.NotContains(t, e.Name, ".hidden")
+		assert.NotContains(t, e.Name, ".ignore")
+		assert.NotContains(t, e.Name, ".hidden")
 	}
 
 	ExpectWatched(t, w, []string{
@@ -357,17 +357,17 @@ func TestWatcherUnignore(t *testing.T) {
 	base, notifications := t.TempDir(), make(chan fsnotify.Event)
 	w := runNewWatcher(t, base, notifications)
 
-	require.NoError(t, w.Add(base))
+	assert.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{base})
 
 	{
 		p := filepath.Join(base, ".*")
-		require.NoError(t, w.Ignore(p))
+		assert.NoError(t, w.Ignore(p))
 		w.Unignore(p)
 	}
 
 	MustMkdir(t, base, ".hidden")
-	require.Equal(t, fsnotify.Event{
+	assert.Equal(t, fsnotify.Event{
 		Op:   fsnotify.Create,
 		Name: filepath.Join(base, ".hidden"),
 	}, <-notifications)
@@ -381,35 +381,35 @@ func ExpectWatched(t *testing.T, w *watcher.Watcher, expect []string) {
 		actual = append(actual, path)
 		return true
 	})
-	require.Len(t, actual, len(expect), "actual: %v", actual)
+	assert.Equal(t, len(expect), len(actual), "actual: %v", actual)
 	for _, exp := range expect {
-		require.Contains(t, actual, exp)
+		assert.SliceContains(t, actual, exp)
 	}
 }
 
 func MustMkdir(t *testing.T, pathParts ...string) {
 	t.Helper()
 	err := os.Mkdir(filepath.Join(pathParts...), 0o777)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func MustCreateFile(t *testing.T, pathParts ...string) *os.File {
 	t.Helper()
 	f, err := os.Create(filepath.Join(pathParts...))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	return f
 }
 
 func MustRemove(t *testing.T, pathParts ...string) {
 	t.Helper()
 	err := os.Remove(filepath.Join(pathParts...))
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func MustRename(t *testing.T, from, to string) {
 	t.Helper()
 	err := os.Rename(from, to)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 // TestConcurrency requires go test -race
@@ -436,12 +436,12 @@ func runNewWatcher(
 		}
 		return nil
 	})
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	t.Cleanup(func() {
-		require.NoError(t, w.Close())
+		assert.NoError(t, w.Close())
 		wg.Wait() // Wait until the runner stops
 	})
 	go func() {

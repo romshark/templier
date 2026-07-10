@@ -5,24 +5,24 @@ import (
 
 	"github.com/romshark/templier/internal/action"
 
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestRequire(t *testing.T) {
 	t.Parallel()
 
 	var s action.SyncStatus
-	require.Equal(t, action.ActionNone, s.Load())
+	assert.Equal(t, action.ActionNone, s.Load())
 
 	s.Require(action.ActionReload)
-	require.Equal(t, action.ActionReload, s.Load(), "overwrite")
+	assert.Equal(t, action.ActionReload, s.Load(), "overwrite")
 
 	s.Require(action.ActionRestart)
-	require.Equal(t, action.ActionRestart, s.Load(), "overwrite")
+	assert.Equal(t, action.ActionRestart, s.Load(), "overwrite")
 
 	s.Require(action.ActionReload)
-	require.Equal(t, action.ActionRestart, s.Load(), "no overwrite")
+	assert.Equal(t, action.ActionRestart, s.Load(), "no overwrite")
 
 	s.Require(action.ActionRebuild)
-	require.Equal(t, action.ActionRebuild, s.Load(), "overwrite")
+	assert.Equal(t, action.ActionRebuild, s.Load(), "overwrite")
 }

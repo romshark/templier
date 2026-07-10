@@ -7,14 +7,14 @@ import (
 	"github.com/romshark/templier/internal/config"
 
 	"github.com/romshark/yamagiconf"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestValidateType(t *testing.T) {
 	t.Parallel()
 
 	err := yamagiconf.ValidateType[config.Config]()
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }
 
 func TestSpaceSeparatedList(t *testing.T) {
@@ -28,8 +28,8 @@ func TestSpaceSeparatedList(t *testing.T) {
 		t.Helper()
 		var actual TestConfig
 		err := yamagiconf.Load(input, &actual)
-		require.NoError(t, err)
-		require.Equal(t, expect, actual.List)
+		assert.NoError(t, err)
+		assert.Equal(t, expect, actual.List)
 	}
 
 	// Empty.
