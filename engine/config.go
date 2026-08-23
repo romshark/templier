@@ -5,10 +5,14 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os/exec"
 	"runtime/debug"
+	"slices"
 	"time"
+
+	"github.com/romshark/templier/internal/cmdrun"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -269,20 +273,43 @@ func (c *Config) Validate() error {
 			)
 		}
 	}
+	// Custom watcher commands are executed through a shell, hence it's the
+	// shell that must be available. The commands themselves are only checked
+	// in checkCustomWatcherCmds because they may well be shell builtins,
+	// aliases or functions which LookPath can't resolve.
+	if slices.ContainsFunc(c.CustomWatchers, func(w CustomWatcherConfig) bool {
+		return w.Cmd != ""
+	}) {
+		shell := cmdrun.ShellName()
+		if _, err := exec.LookPath(shell); err != nil {
+			return fmt.Errorf(
+				"engine: shell %q is required to run custom watcher "+
+					"commands but wasn't found in PATH: %w", shell, err,
+			)
+		}
+	}
+
+	return nil
+}
+
+// checkCustomWatcherCmds warns about custom watcher commands that can't be
+// resolved in PATH.
+//
+// This is only a warning because the command is executed through a shell
+// where it may well be a builtin, an alias or a function that can't be
+// resolved by looking it up in PATH.
+func (c *Config) checkCustomWatcherCmds(logger *slog.Logger) {
 	for _, w := range c.CustomWatchers {
 		if w.Cmd == "" {
 			continue
 		}
 		cmd := cmdFromString(w.Cmd)
 		if _, err := exec.LookPath(cmd); err != nil {
-			return fmt.Errorf(
-				"engine: custom watcher %q command %q not found: %w",
-				w.Name, cmd, err,
-			)
+			logger.Warn("custom watcher command isn't installed "+
+				"on your system or is not in your PATH",
+				"watcher", w.Name, "cmd", cmd)
 		}
 	}
-
-	return nil
 }
 
 // cmdFromString extracts the command name (first word) from a shell command string.

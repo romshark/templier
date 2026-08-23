@@ -53,8 +53,8 @@ type Config struct {
 
 	// TLS is optional, will serve HTTP instead of HTTPS if nil.
 	TLS *struct {
-		Cert string `yaml:"cert" validate:"filepath,required"`
-		Key  string `yaml:"key" validate:"filepath,required"`
+		Cert string `yaml:"cert" validate:"required"`
+		Key  string `yaml:"key" validate:"required"`
 	} `yaml:"tls"`
 
 	// CustomWatchers defines custom file change watchers.
@@ -68,7 +68,7 @@ type Config struct {
 
 type ConfigApp struct {
 	// DirSrcRoot is the source root directory for the application server.
-	DirSrcRoot string `yaml:"dir-src-root" validate:"dirpath,required"`
+	DirSrcRoot string `yaml:"dir-src-root" validate:"required"`
 
 	dirSrcRootAbsolute string `yaml:"-"` // Initialized from DirSrcRoot
 
@@ -78,10 +78,10 @@ type ConfigApp struct {
 	Exclude GlobList `yaml:"exclude"`
 
 	// DirCmd is the server cmd directory containing the `main` function.
-	DirCmd string `yaml:"dir-cmd" validate:"dirpath,required"`
+	DirCmd string `yaml:"dir-cmd" validate:"required"`
 
 	// DirWork is the working directory to run the application server from.
-	DirWork string `yaml:"dir-work" validate:"dirpath,required"`
+	DirWork string `yaml:"dir-work" validate:"required"`
 
 	// Flags are the CLI arguments to be passed to the application server.
 	Flags SpaceSeparatedList `yaml:"flags"`
@@ -404,6 +404,16 @@ func MustParse(version, commit, date string) engine.Config {
 		}
 	}
 
+	mustBeDir("app.dir-src-root", conf.App.DirSrcRoot)
+	mustBeDir("app.dir-work", conf.App.DirWork)
+	// dir-cmd is resolved relative to dir-work since that's
+	// the directory the Go compiler is invoked from.
+	mustBeDir("app.dir-cmd", resolveRelative(conf.App.DirWork, conf.App.DirCmd))
+	if conf.TLS != nil {
+		mustBeFile("tls.cert", conf.TLS.Cert)
+		mustBeFile("tls.key", conf.TLS.Key)
+	}
+
 	conf.App.dirSrcRootAbsolute, err = filepath.Abs(conf.App.DirSrcRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "getting absolute path for app.dir-src-root: %v\n", err)
@@ -440,6 +450,50 @@ func MustParse(version, commit, date string) engine.Config {
 	}
 
 	return toEngineConfig(&conf)
+}
+
+// resolveRelative resolves p against base unless p is already absolute.
+func resolveRelative(base, p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
+}
+
+// mustBeDir terminates the process unless p is an existing directory.
+//
+// The paths are verified explicitly instead of relying on the "dirpath"
+// validation rule because that rule accepts or rejects the very same path
+// depending on the operating system it runs on.
+func mustBeDir(field, p string) {
+	info, err := os.Stat(p)
+	if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "%s (%q): directory doesn't exist\n", field, p)
+		os.Exit(1)
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "%s (%q): %v\n", field, p, err)
+		os.Exit(1)
+	}
+	if !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "%s (%q): not a directory\n", field, p)
+		os.Exit(1)
+	}
+}
+
+// mustBeFile terminates the process unless p is an existing file.
+func mustBeFile(field, p string) {
+	info, err := os.Stat(p)
+	if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "%s (%q): file doesn't exist\n", field, p)
+		os.Exit(1)
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "%s (%q): %v\n", field, p, err)
+		os.Exit(1)
+	}
+	if info.IsDir() {
+		fmt.Fprintf(os.Stderr, "%s (%q): not a file\n", field, p)
+		os.Exit(1)
+	}
 }
 
 func toEngineConfig(c *Config) engine.Config {
