@@ -38,6 +38,21 @@ templier --config ./templier.yml
 
 ℹ️ Templiér automatically detects `templier.yml` and `templier.yaml` in the current directory without requiring the explicit `--config` flag.
 
+## Platform Support 🐧🍎🪟
+
+Templiér runs on Linux, macOS and Windows.
+Behavior is identical on all three except for the following Windows specifics:
+
+- Custom watcher `cmd` runs through `cmd /C` instead of `sh -c`.
+  Even where a POSIX shell is on `PATH` (Git Bash for example), it isn't used.
+- A directory that contains sub-directories can't be renamed while Templiér is running,
+  it fails with `Access is denied`. Windows refuses to rename a directory while its
+  sub-directories are held open for watching.
+
+Glob expressions in `app.exclude` and in custom watcher `include` and `exclude`
+always use forward slashes (`/`) as path separators, on all platforms,
+regardless of the path separator the operating system itself uses.
+
 ## How is Templiér different from templ's own watch mode?
 
 As you may already know, templ supports [live reload](https://templ.guide/commands-and-tools/live-reload)
@@ -65,6 +80,10 @@ which is great, but Templiér provides an even better developer experience:
 
 Custom watchers let you change how Templiér behaves for files that match any of
 the `include` globs, and they can be used for the use cases shown below.
+
+`cmd` runs through a shell (`sh -c`, `cmd /C` on
+[Windows](#platform-support-)). `include` and `exclude` globs always use
+forward slashes as path separators.
 
 The `requires` option lets you override the default behavior:
 

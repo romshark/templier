@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,24 @@ import (
 )
 
 const serverHealthPreflightWaitInterval = 100 * time.Millisecond
+
+// serverShutdownTimeout defines how long to wait for the app server
+// process to exit after it was asked to stop before killing it.
+const serverShutdownTimeout = 5 * time.Second
+
+// waitTimeout waits for wg and reports whether it finished within d.
+func waitTimeout(wg *sync.WaitGroup, d time.Duration) (finished bool) {
+	done := make(chan struct{})
+	go func() { defer close(done); wg.Wait() }()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
 
 // Engine is the core templier engine.
 // Use [New] to create an Engine and [Engine.Run] to start it.
@@ -103,6 +122,8 @@ func New(conf Config, opts Options) (*Engine, error) {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+
+	conf.checkCustomWatcherCmds(logger)
 
 	e := &Engine{
 		conf:           conf,
@@ -414,16 +435,47 @@ func (e *Engine) runAppLauncher(
 	var latestBinaryPath string
 	var waitExit sync.WaitGroup
 
+	// srvExited indicates that no app server process is currently running,
+	// either because none was started yet or because it already exited.
+	var srvExited atomic.Bool
+	srvExited.Store(true)
+
 	stopServer := func() (stopped bool) {
-		if latestSrvCmd == nil || latestSrvCmd.Process == nil {
-			return false
+		if latestSrvCmd == nil || latestSrvCmd.Process == nil || srvExited.Load() {
+			return false // No app server process to stop.
 		}
 		e.logger.Debug("stopping app server", "pid", latestSrvCmd.Process.Pid)
-		if err := latestSrvCmd.Process.Signal(os.Interrupt); err != nil {
-			e.logger.Error("sending interrupt signal to app server", "err", err)
+		graceful, err := cmdrun.StopProcess(latestSrvCmd.Process)
+		if err != nil {
+			if srvExited.Load() {
+				// The process exited on its own in the meantime, for example
+				// because it received the interrupt directly from the console.
+				return false
+			}
+			e.logger.Error("stopping app server", "err", err)
 			return false
 		}
+		if !graceful {
+			e.logger.Debug("app server couldn't be stopped gracefully, terminated")
+		}
 		return true
+	}
+
+	// awaitServerExit waits for the app server process to exit and kills it
+	// if it doesn't do so within serverShutdownTimeout to make sure a process
+	// that refuses to stop can never block the launcher indefinitely.
+	awaitServerExit := func() {
+		if waitTimeout(&waitExit, serverShutdownTimeout) {
+			return
+		}
+		e.logger.Error("app server didn't exit in time, killing it",
+			"timeout", serverShutdownTimeout)
+		if latestSrvCmd != nil && latestSrvCmd.Process != nil {
+			if err := latestSrvCmd.Process.Kill(); err != nil {
+				e.logger.Error("killing app server", "err", err)
+			}
+		}
+		waitExit.Wait()
 	}
 
 	healthCheckClient := &http.Client{Transport: &http.Transport{
@@ -436,7 +488,7 @@ func (e *Engine) runAppLauncher(
 
 		start := time.Now()
 		stopped := stopServer()
-		waitExit.Wait()
+		awaitServerExit()
 
 		if stopped {
 			e.logger.Info("stopped server", "duration", time.Since(start))
@@ -459,6 +511,9 @@ func (e *Engine) runAppLauncher(
 		// for faster reloads without recompilation.
 		c.Env = append(os.Environ(), "TEMPL_DEV_MODE=true")
 
+		// Required for the app server to be stoppable gracefully on Windows.
+		cmdrun.SetProcessGroup(c)
+
 		var bufOutputCombined bytes.Buffer
 
 		c.Stdout = io.MultiWriter(e.stdout, &bufOutputCombined)
@@ -474,11 +529,13 @@ func (e *Engine) runAppLauncher(
 		}
 		if c.Process != nil {
 			e.logger.Debug("app server running", "pid", c.Process.Pid)
+			srvExited.Store(false)
 		}
 
 		var exitCode atomic.Int32
 		exitCode.Store(-1)
 		waitExit.Go(func() {
+			defer srvExited.Store(true)
 			err := c.Wait()
 			if err == nil {
 				return
@@ -561,18 +618,26 @@ func (e *Engine) runAppLauncher(
 				continue
 			}
 			runner.Go(ctx, func(ctx context.Context) {
-				if latestBinaryPath != "" {
-					e.logger.Debug("remove executable", "path", latestBinaryPath)
-					if err := os.Remove(latestBinaryPath); err != nil {
-						e.logger.Error("removing binary file",
-							"path", latestBinaryPath, "err", err)
-					}
-				}
+				previousBinaryPath := latestBinaryPath
 				latestBinaryPath = newBinaryPath
 				rerun(ctx)
+				if previousBinaryPath != "" {
+					// The previous binary is removed only after rerun stopped
+					// the process that was executing it. Windows refuses to
+					// delete the executable file of a running process.
+					e.logger.Debug("remove executable", "path", previousBinaryPath)
+					if err := os.Remove(previousBinaryPath); err != nil {
+						e.logger.Error("removing binary file",
+							"path", previousBinaryPath, "err", err)
+					}
+				}
 			})
 		case <-ctx.Done():
 			stopServer()
+			// Wait for the app server process to actually exit before returning,
+			// otherwise the cleanup would try to remove the executable file it's
+			// still running, which Windows refuses to do.
+			awaitServerExit()
 			return
 		}
 	}
@@ -802,7 +867,13 @@ func (e *Engine) buildServer(
 
 func makeUniqueServerOutPath(basePath string) string {
 	tm := time.Now()
-	return filepath.Join(basePath, "server_"+strconv.FormatInt(tm.UnixNano(), 16))
+	name := "server_" + strconv.FormatInt(tm.UnixNano(), 16)
+	if runtime.GOOS == "windows" {
+		// Windows resolves executables by extension,
+		// a file without one can't be executed even when the full path is provided.
+		name += ".exe"
+	}
+	return filepath.Join(basePath, name)
 }
 
 func (e *Engine) lintAndBuildServer(
