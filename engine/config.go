@@ -93,6 +93,12 @@ type Config struct {
 	// Example: "127.0.0.1:9999".
 	TemplierHost string
 
+	// TemplCmd is the command used to run templ for code generation
+	// and formatting. Empty means ["templ"]. Set to ["go", "tool", "templ"]
+	// to use a templ binary installed as a Go tool dependency instead of a
+	// system-wide installation.
+	TemplCmd []string
+
 	// TLS enables TLS for the templier proxy server. Nil means plain HTTP.
 	TLS *TLSConfig
 
@@ -258,8 +264,9 @@ func (c *Config) Validate() error {
 	}
 
 	// Check required binaries.
-	if _, err := exec.LookPath("templ"); err != nil {
-		return fmt.Errorf("engine: templ is not installed or not in PATH: %w", err)
+	if _, err := exec.LookPath(c.TemplCmd[0]); err != nil {
+		return fmt.Errorf("engine: templ command %q is not installed or not in PATH: %w",
+			c.TemplCmd[0], err)
 	}
 	if c.Lint {
 		if _, err := exec.LookPath("golangci-lint"); err != nil {
@@ -310,5 +317,8 @@ func (c *Config) applyDefaults() {
 	}
 	if c.ReconnectMessage == "" {
 		c.ReconnectMessage = "reconnecting..."
+	}
+	if len(c.TemplCmd) == 0 {
+		c.TemplCmd = []string{"templ"}
 	}
 }

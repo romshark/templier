@@ -51,6 +51,12 @@ type Config struct {
 	// Example: "127.0.0.1:9999".
 	TemplierHost string `yaml:"templier-host" validate:"hostname_port,required"`
 
+	// TemplCmd defines the command used to run templ.
+	// Defaults to "templ" but can be set to "go tool templ" to use the
+	// templ binary installed as a Go tool dependency instead of a
+	// system-wide installation.
+	TemplCmd SpaceSeparatedList `yaml:"templ-cmd"`
+
 	// TLS is optional, will serve HTTP instead of HTTPS if nil.
 	TLS *struct {
 		Cert string `yaml:"cert" validate:"filepath,required"`
@@ -379,6 +385,7 @@ func MustParse(version, commit, date string) engine.Config {
 	conf.Log.ClearOn = LogClearDisabled
 	conf.Log.PrintJSDebugLogs = false
 	conf.TLS = nil
+	conf.TemplCmd = SpaceSeparatedList{"templ"}
 
 	if fConfigPath == "" {
 		// Try to detect config automatically.
@@ -457,6 +464,7 @@ func toEngineConfig(c *Config) engine.Config {
 		Lint:          c.Lint,
 		Format:        c.Format,
 		TemplierHost:  c.TemplierHost,
+		TemplCmd:      []string(c.TemplCmd),
 		WatcherIgnore: []string(c.WatcherIgnore),
 		Log: engine.LogConfig{
 			Level:            engine.LogLevel(c.Log.Level),
