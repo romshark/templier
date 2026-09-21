@@ -5,18 +5,19 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/romshark/templier/internal/watcher"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/alecthomas/assert/v2"
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestWatcher(t *testing.T) {
-	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	base, notifications := t.TempDir(), make(chan fsnotify.Event, eventBufferSize)
 	w := runNewWatcher(t, base, notifications)
 
 	// Create a sub-directory that exists even before Run
@@ -29,41 +30,21 @@ func TestWatcher(t *testing.T) {
 		filepath.Join(base, "existing-subdir"),
 	})
 
-	// Helper to collect events until timeout
-	collectEvents := func(minCount int, timeout time.Duration) []fsnotify.Event {
-		var events []fsnotify.Event
-		deadline := time.After(timeout)
-		for {
-			select {
-			case e := <-notifications:
-				events = append(events, e)
-				if len(events) >= minCount {
-					// Drain any additional events briefly
-					drainDeadline := time.After(50 * time.Millisecond)
-				drain:
-					for {
-						select {
-						case e := <-notifications:
-							events = append(events, e)
-						case <-drainDeadline:
-							break drain
-						}
-					}
-					return events
-				}
-			case <-deadline:
-				return events
-			}
-		}
-	}
-
 	var events []fsnotify.Event
 
+	// After every operation, wait for the expected event,
+	// otherwise the watcher state is checked before it was updated.
 	MustCreateFile(t, base, "newfile")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "newfile"),
+	})
 
 	MustMkdir(t, base, "newdir")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "newdir"),
+	})
 	ExpectWatched(t, w, []string{
 		base,
 		filepath.Join(base, "existing-subdir"),
@@ -71,7 +52,10 @@ func TestWatcher(t *testing.T) {
 	})
 
 	MustMkdir(t, base, "newdir", "subdir")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "newdir", "subdir"),
+	})
 	ExpectWatched(t, w, []string{
 		base,
 		filepath.Join(base, "existing-subdir"),
@@ -80,72 +64,81 @@ func TestWatcher(t *testing.T) {
 	})
 
 	MustCreateFile(t, base, "newdir", "subdir", "subfile")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "newdir", "subdir", "subfile"),
+	})
 
 	MustCreateFile(t, base, "newdir", "subdir", "subfile2")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "newdir", "subdir", "subfile2"),
+	})
 
 	MustCreateFile(t, base, "existing-subdir", "subfile3")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "existing-subdir", "subfile3"),
+	})
 
 	MustRemove(t, base, "existing-subdir", "subfile3")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Remove,
+		Name: filepath.Join(base, "existing-subdir", "subfile3"),
+	})
 
 	MustRemove(t, base, "existing-subdir")
-	events = append(events, <-notifications)
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Remove,
+		Name: filepath.Join(base, "existing-subdir"),
+	})
+}
 
-	// Renaming may generate 1 or 2 events depending on platform
+// TestWatcherRenameDir tests renaming a watched directory that
+// contains a watched sub-directory.
+func TestWatcherRenameDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows refuses to rename a directory while a handle to any of its
+		// sub-directories is open, which a recursive watcher keeps open for any
+		// directory that has them. This is a limitation of the platform,
+		// the watcher can't do anything about it.
+		t.Skip("Windows can't rename a directory " +
+			"while its sub-directories are being watched")
+	}
+
+	base, notifications := t.TempDir(), make(chan fsnotify.Event, eventBufferSize)
+	w := runNewWatcher(t, base, notifications)
+
+	MustMkdir(t, base, "newdir")
+	MustMkdir(t, base, "newdir", "subdir")
+
+	assert.NoError(t, w.Add(base))
+	ExpectWatched(t, w, []string{
+		base,
+		filepath.Join(base, "newdir"),
+		filepath.Join(base, "newdir", "subdir"),
+	})
+
+	var events []fsnotify.Event
+
+	// Renaming generates two events, the rename of the original directory and
+	// the creation of the new one. The order they arrive in is platform dependent,
+	// hence both are awaited without assuming any order.
 	MustRename(t, filepath.Join(base, "newdir"), filepath.Join(base, "newname"))
-	renameEvents := collectEvents(1, 2*time.Second)
-	assert.NotZero(t, len(renameEvents), "expected at least one event for rename")
-	events = append(events, renameEvents...)
-
-	// After rename, we need to re-add the new directory to watch it
-	// because the watcher removes the old path on rename
-	assert.NoError(t, w.Add(filepath.Join(base, "newname")))
-
+	awaitEvents(t, notifications, &events,
+		fsnotify.Event{
+			Op:   fsnotify.Rename,
+			Name: filepath.Join(base, "newdir"),
+		},
+		fsnotify.Event{
+			Op:   fsnotify.Create,
+			Name: filepath.Join(base, "newname"),
+		},
+	)
 	ExpectWatched(t, w, []string{
 		base,
 		filepath.Join(base, "newname"),
 		filepath.Join(base, "newname", "subdir"),
-	})
-
-	// Verify expected events were received
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "newfile"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "newdir"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "newdir", "subdir"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "newdir", "subdir", "subfile"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "newdir", "subdir", "subfile2"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "existing-subdir", "subfile3"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Remove,
-		Name: filepath.Join(base, "existing-subdir", "subfile3"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Remove,
-		Name: filepath.Join(base, "existing-subdir"),
-	})
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Rename,
-		Name: filepath.Join(base, "newdir"),
 	})
 }
 
@@ -154,47 +147,162 @@ func TestWatcher(t *testing.T) {
 // then replaces the original file with the temp files.
 // The watcher must ignore the temporary files in this scenario.
 func TestTemplTempFiles(t *testing.T) {
-	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	base, notifications := t.TempDir(), make(chan fsnotify.Event, eventBufferSize)
 	w := runNewWatcher(t, base, notifications)
 
 	assert.NoError(t, w.Ignore("*.templ[0-9]*"))
 	assert.NoError(t, w.Add(base))
 	ExpectWatched(t, w, []string{base})
 
-	events := make([]fsnotify.Event, 3)
-
-	// After every operation, wait for fsnotify to trigger,
-	// otherwise events might get lost.
+	var events []fsnotify.Event
 
 	MustCreateFile(t, base, "test.templ")
-	events[0] = <-notifications
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "test.templ"),
+	})
 
 	// This file should be ignored.
 	MustCreateFile(t, base, "test.templ123456")
 
 	MustRemove(t, base, "test.templ")
-	events[1] = <-notifications
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Remove,
+		Name: filepath.Join(base, "test.templ"),
+	})
 
 	MustRename(t,
 		filepath.Join(base, "test.templ123456"),
 		filepath.Join(base, "test.templ"))
-	events[2] = <-notifications
+	awaitEvent(t, notifications, &events, fsnotify.Event{
+		Op:   fsnotify.Create,
+		Name: filepath.Join(base, "test.templ"),
+	})
 
-	// Event 0
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "test.templ"),
-	})
-	// Event 1
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Remove,
-		Name: filepath.Join(base, "test.templ"),
-	})
-	// Event 2
-	eventsMustContain(t, events, fsnotify.Event{
-		Op:   fsnotify.Create,
-		Name: filepath.Join(base, "test.templ"),
-	})
+	// The ignored temp file must never have been reported.
+	for _, e := range events {
+		assert.NotEqual(t, filepath.Join(base, "test.templ123456"), e.Name)
+	}
+}
+
+const (
+	// awaitEventTimeout defines how long awaitEvent waits for an expected event.
+	awaitEventTimeout = 10 * time.Second
+
+	// eventBufferSize must be large enough for the notification channel to
+	// never block the watcher, otherwise a test that stops reading,
+	// because it failed or finished, would keep the watcher from shutting down.
+	eventBufferSize = 256
+)
+
+// awaitEvent blocks until the expected event was received appending every
+// event received in the meantime to received.
+//
+// The exact sequence of filesystem events is platform dependent.
+// Windows for example reports operations that Linux and macOS don't report at all,
+// hence tests must never assume an exact number of events in an exact order,
+// they must wait for the events they're interested in instead.
+func awaitEvent(
+	t *testing.T,
+	notifications <-chan fsnotify.Event,
+	received *[]fsnotify.Event,
+	expected fsnotify.Event,
+) {
+	t.Helper()
+	timeout := time.After(awaitEventTimeout)
+	for {
+		select {
+		case e := <-notifications:
+			*received = append(*received, e)
+			if e.Op == expected.Op && e.Name == expected.Name {
+				return
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for event %#v; received: %#v",
+				expected, *received)
+			return
+		}
+	}
+}
+
+// awaitEvents blocks until every expected event was received, in any order,
+// appending every event received in the meantime to received.
+func awaitEvents(
+	t *testing.T,
+	notifications <-chan fsnotify.Event,
+	received *[]fsnotify.Event,
+	expected ...fsnotify.Event,
+) {
+	t.Helper()
+	pending := make([]fsnotify.Event, len(expected))
+	copy(pending, expected)
+
+	// Expected events may already be among the ones received earlier.
+	for _, e := range *received {
+		pending = removeEvent(pending, e)
+	}
+
+	timeout := time.After(awaitEventTimeout)
+	for len(pending) > 0 {
+		select {
+		case e := <-notifications:
+			*received = append(*received, e)
+			pending = removeEvent(pending, e)
+		case <-timeout:
+			t.Fatalf("timed out waiting for events %#v; received: %#v",
+				pending, *received)
+			return
+		}
+	}
+}
+
+// removeEvent removes the first event matching e from pending.
+func removeEvent(pending []fsnotify.Event, e fsnotify.Event) []fsnotify.Event {
+	for i, p := range pending {
+		if p.Op == e.Op && p.Name == e.Name {
+			return append(pending[:i], pending[i+1:]...)
+		}
+	}
+	return pending
+}
+
+// awaitNames polls snapshot until every expected name was reported,
+// storing the last snapshot it took in received.
+func awaitNames(
+	t *testing.T,
+	received *[]fsnotify.Event,
+	snapshot func() []fsnotify.Event,
+	expected ...string,
+) {
+	t.Helper()
+	timeout := time.After(awaitEventTimeout)
+	for {
+		*received = snapshot()
+		missing := false
+		for _, name := range expected {
+			found := false
+			for _, e := range *received {
+				if e.Name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			return
+		}
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting for events %#v; received: %#v",
+				expected, *received)
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func eventsMustContain(t *testing.T, set []fsnotify.Event, contains fsnotify.Event) {
@@ -326,12 +434,14 @@ func TestWatcherIgnore(t *testing.T) {
 	MustCreateFile(t, base, "notignored")
 	MustMkdir(t, base, "notignoreddir")
 
-	// Give filesystem events time to propagate
-	time.Sleep(100 * time.Millisecond)
-
-	lock.Lock()
-	eventsCopy := append([]fsnotify.Event{}, events...)
-	lock.Unlock()
+	// The time filesystem events take to propagate is platform dependent,
+	// hence they're awaited instead of being given a fixed grace period.
+	var eventsCopy []fsnotify.Event
+	awaitNames(t, &eventsCopy, func() []fsnotify.Event {
+		lock.Lock()
+		defer lock.Unlock()
+		return append([]fsnotify.Event{}, events...)
+	}, filepath.Join(base, "notignored"), filepath.Join(base, "notignoreddir"))
 
 	// Verify we got events for non-ignored files
 	eventsMustContain(t, eventsCopy, fsnotify.Event{
@@ -354,7 +464,7 @@ func TestWatcherIgnore(t *testing.T) {
 }
 
 func TestWatcherUnignore(t *testing.T) {
-	base, notifications := t.TempDir(), make(chan fsnotify.Event)
+	base, notifications := t.TempDir(), make(chan fsnotify.Event, eventBufferSize)
 	w := runNewWatcher(t, base, notifications)
 
 	assert.NoError(t, w.Add(base))
@@ -393,11 +503,14 @@ func MustMkdir(t *testing.T, pathParts ...string) {
 	assert.NoError(t, err)
 }
 
-func MustCreateFile(t *testing.T, pathParts ...string) *os.File {
+// MustCreateFile creates a file and closes it immediately. The handle must not
+// be kept open because Windows refuses to remove or rename files that are still in use,
+// which the tests rely on being possible.
+func MustCreateFile(t *testing.T, pathParts ...string) {
 	t.Helper()
 	f, err := os.Create(filepath.Join(pathParts...))
 	assert.NoError(t, err)
-	return f
+	assert.NoError(t, f.Close())
 }
 
 func MustRemove(t *testing.T, pathParts ...string) {

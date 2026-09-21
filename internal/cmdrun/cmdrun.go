@@ -51,7 +51,14 @@ func Run(
 
 // Sh runs an arbitrary shell script and behaves similar to Run.
 func Sh(ctx context.Context, workDir string, logger *slog.Logger, sh string) (out []byte, err error) {
-	return Run(ctx, workDir, nil, logger, "sh", "-c", sh)
+	name, args := shellCommand(sh)
+	return Run(ctx, workDir, nil, logger, name, args...)
+}
+
+// ShellName returns the name of the shell executable Sh runs scripts with.
+func ShellName() string {
+	name, _ := shellCommand("")
+	return name
 }
 
 // RunTemplFmt runs `templ fmt <path>`.
@@ -59,6 +66,16 @@ func RunTemplFmt(ctx context.Context, workDir string, path string) error {
 	cmd := exec.Command("templ", "fmt", "-fail", path)
 	cmd.Dir = workDir
 	return cmd.Run()
+}
+
+// RunTemplGenerate runs `templ generate` writing production output.
+func RunTemplGenerate(ctx context.Context, workDir string) error {
+	cmd := exec.CommandContext(ctx, "templ", "generate")
+	cmd.Dir = workDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, string(out))
+	}
+	return nil
 }
 
 type TemplChange int8
@@ -71,8 +88,9 @@ const (
 
 // RunTemplWatch starts `templ generate --log-level debug --watch` and reads its
 // stdout pipe for failure and success logs updating the state accordingly.
-// When ctx is canceled the interrupt signal is sent to the watch process
-// and graceful shutdown is awaited.
+// When ctx is canceled the watch process is stopped and its exit is awaited.
+// If it had to be terminated forcefully the production output is generated explicitly,
+// because the terminated process never got the chance to write it.
 func RunTemplWatch(
 	ctx context.Context,
 	workDir string,
@@ -91,6 +109,8 @@ func RunTemplWatch(
 		"--watch-pattern", `(.+\.templ$)`,
 	)
 	cmd.Dir = workDir
+	// Required for the watch process to be stoppable gracefully on Windows.
+	SetProcessGroup(cmd)
 
 	stdout, err := cmd.StderrPipe()
 	if err != nil {
@@ -118,12 +138,29 @@ func RunTemplWatch(
 	}()
 
 	select {
-	case <-ctx.Done(): // Terminate templ watch gracefully.
-		if err := cmd.Process.Signal(os.Interrupt); err != nil {
-			return fmt.Errorf("interrupting templ watch process: %w", err)
+	case <-ctx.Done(): // Terminate templ watch.
+		graceful, err := StopProcess(cmd.Process)
+		if err != nil {
+			return fmt.Errorf("stopping templ watch process: %w", err)
 		}
-		if err := <-done; err != nil {
-			return fmt.Errorf("process did not exit cleanly: %w", err)
+		waitErr := <-done
+		if graceful {
+			if waitErr != nil {
+				return fmt.Errorf("process did not exit cleanly: %w", waitErr)
+			}
+			return nil
+		}
+		if waitErr == nil {
+			// The watch process exited on its own before it could be
+			// terminated and already wrote the production output.
+			return nil
+		}
+		// The watch process had to be terminated forcefully and never got
+		// the chance to replace the debug components with production output,
+		// hence it's generated explicitly.
+		// ctx is already canceled at this point and can't be used.
+		if err := RunTemplGenerate(context.Background(), workDir); err != nil {
+			return fmt.Errorf("generating templ production output: %w", err)
 		}
 	case err := <-done: // Command finished without interruption.
 		return err

@@ -2,6 +2,30 @@ on: [push, pull_request]
 name: CI
 jobs:
   test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Install Go 1.27.0
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          check-latest: true
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Test
+      - name: Test
+        run: go test -v -race ./...
+
+      # Try compile
+      - name: Compile
+        run: go build -o "${{ runner.temp }}/templier" .
+
+  coverage:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go 1.27.0
@@ -35,7 +59,3 @@ jobs:
         run: |
           echo "Detected uncommitted changes after running templ generate." \
           "Please regenerate .templ templates and commit changes." && exit 1
-
-      # Try compile
-      - name: Compile
-        run: go build -o /dev/null .

@@ -46,6 +46,10 @@ const (
 	stateRunning
 )
 
+// eventQueueSize is the capacity of the internal event queue that decouples
+// the fsnotify event loop from event handling.
+const eventQueueSize = 4096
+
 // New creates a new file watcher that executes onChange for any
 // remove/create/change/chmod filesystem event.
 // onChange will receive the ctx that was passed to Run.
@@ -115,12 +119,17 @@ func (w *Watcher) RangeWatchedDirs(fn func(path string) (continueIter bool)) {
 // Noop if the watcher is closed.
 func (w *Watcher) Close() error {
 	w.lock.Lock()
-	defer w.lock.Unlock()
 	if w.state == stateClosed {
+		w.lock.Unlock()
 		return nil
 	}
 	w.state = stateClosed
 	w.signalClose()
+	w.lock.Unlock()
+
+	// The fsnotify watcher is closed without holding the lock because closing
+	// it waits for its internal event loop to finish, which requires Run to
+	// keep consuming events, which in turn requires the lock.
 	return w.watcher.Close()
 }
 
@@ -146,8 +155,12 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 				}
 				return fmt.Errorf("isExluded: %w", err)
 			}
-			_, err = w.fileRegistry.Add(name)
-			return err
+			if _, err := w.fileRegistry.Add(name); err != nil {
+				// A file that vanished or is temporarily inaccessible while
+				// the tree is being walked must not abort the registration.
+				w.logger.Debug("registering file", "name", name, "err", err)
+			}
+			return nil
 		})
 
 		// Signal runner readiness
@@ -157,6 +170,30 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("registering files from base dir: %w", err)
 	}
+
+	// fsnotify events are drained into an internal queue so that the fsnotify
+	// event loop is never blocked by event handling. On Windows the fsnotify
+	// backend serves watch registration and removal requests from the very
+	// same goroutine that delivers events, hence handling an event while
+	// holding the lock would deadlock any concurrent Add, Remove or Close.
+	events := make(chan fsnotify.Event, eventQueueSize)
+	go func() {
+		for {
+			select {
+			case <-w.close:
+				return
+			case e, ok := <-w.watcher.Events:
+				if !ok {
+					return // The fsnotify watcher was closed.
+				}
+				select {
+				case events <- e:
+				case <-w.close:
+					return
+				}
+			}
+		}
+	}()
 
 	defer func() { _ = w.Close() }()
 	for {
@@ -169,7 +206,7 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 			w.signalClose()
 			w.lock.Unlock()
 			return ctx.Err() // Watching canceled
-		case e := <-w.watcher.Events:
+		case e := <-events:
 			if e.Name == "" || e.Op == 0 {
 				continue
 			}
@@ -223,16 +260,20 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 	} else if e.Op == fsnotify.Write || e.Op == fsnotify.Create {
 		updated, err := w.fileRegistry.Add(e.Name)
 		if err != nil {
+			// The file couldn't be checksummed because it's already gone
+			// again or is temporarily inaccessible. This is normal for
+			// editors and code generators that write to a temporary file and
+			// rename or remove it right after. Windows reports a file that's
+			// pending deletion as inaccessible rather than as non-existent.
+			//
+			// Since it's unknown whether anything changed at all the event is dropped.
+			// Any actual change is followed by another event once the file becomes
+			// accessible again or is removed. The watcher must never fail because of it.
+			w.logger.Debug("ignoring event for inaccessible file",
+				"name", e.Name, "err", err)
+			w.fileRegistry.Remove(e.Name)
 			w.lock.Unlock()
-			// Ignore not exist errors since those are usually triggered
-			// by tools creating and deleting temporary files so quickly that
-			// the watcher sees a file change but isn't fast enough to read it.
-			if errors.Is(err, fs.ErrNotExist) {
-				w.logger.Debug("adding created file to registry", "name",
-					e.Name, "err", err)
-				return nil
-			}
-			return fmt.Errorf("adding created file (%q) to registry: %w", e.Name, err)
+			return nil
 		}
 		if !updated { // File checksum hasn't changed, ignore event.
 			w.lock.Unlock()
@@ -369,9 +410,16 @@ func (w *Watcher) remove(dir string) error {
 // removeWatcher ignores ErrNonExistentWatch when removing a watcher.
 func (w *Watcher) removeWatcher(dir string) error {
 	if err := w.watcher.Remove(dir); err != nil {
-		if !errors.Is(err, fsnotify.ErrNonExistentWatch) {
-			return err
+		if errors.Is(err, fsnotify.ErrNonExistentWatch) {
+			return nil
 		}
+		// A directory that no longer exists doesn't need to be unwatched.
+		// Windows reports this instead of ErrNonExistentWatch because it
+		// resolves the path before looking the watch up.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
 	}
 	return nil
 }
