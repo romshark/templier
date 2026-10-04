@@ -1,6 +1,13 @@
-<a href="https://goreportcard.com/report/github.com/romshark/templier">
-    <img src="https://goreportcard.com/badge/github.com/romshark/templier" alt="GoReportCard">
+<a href="https://github.com/romshark/templier/actions/workflows/ci.yml">
+    <img src="https://github.com/romshark/templier/actions/workflows/ci.yml/badge.svg" alt="CI">
 </a>
+<a href="https://github.com/romshark/templier/releases/latest">
+    <img src="https://img.shields.io/github/v/release/romshark/templier" alt="Latest release">
+</a>
+<a href="LICENSE">
+    <img src="https://img.shields.io/github/license/romshark/templier" alt="License">
+</a>
+
 
 <br>
 <br>
