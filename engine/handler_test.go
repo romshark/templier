@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/templier/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 // TestCustomWatcherOnExcludedDir verifies that a custom watcher
@@ -27,7 +27,7 @@ import (
 // when a CSS file in "static/" changes.
 func TestCustomWatcherOnExcludedDir(t *testing.T) {
 	base := t.TempDir()
-	require.NoError(t, os.Mkdir(filepath.Join(base, "static"), 0o777))
+	assert.NoError(t, os.Mkdir(filepath.Join(base, "static"), 0o777))
 
 	var handlerCalled atomic.Bool
 
@@ -71,12 +71,12 @@ func TestCustomWatcherOnExcludedDir(t *testing.T) {
 			return handler.handle(ctx, e)
 		},
 	)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 
 	// app.Exclude patterns are no longer applied via fsWatcher.Ignore;
 	// they are checked in fileChangeHandler.handle instead.
 
-	require.NoError(t, fsWatcher.Add(base))
+	assert.NoError(t, fsWatcher.Add(base))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -90,8 +90,8 @@ func TestCustomWatcherOnExcludedDir(t *testing.T) {
 
 	// Create a CSS file in the excluded directory.
 	f, err := os.Create(filepath.Join(base, "static", "style.css"))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+	assert.NoError(t, err)
+	assert.NoError(t, f.Close())
 
 	// The custom watcher should trigger a reload.
 	select {

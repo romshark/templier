@@ -9,7 +9,7 @@ import (
 
 	"github.com/romshark/templier/internal/debounce"
 
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestDebounce(t *testing.T) {
@@ -35,7 +35,7 @@ func TestDebounce(t *testing.T) {
 
 	wg.Wait()
 	time.Sleep(10 * time.Millisecond)
-	require.Equal(t, int32(1), counter.Load())
+	assert.Equal(t, int32(1), counter.Load())
 }
 
 func TestNoDebounce(t *testing.T) {
@@ -48,5 +48,5 @@ func TestNoDebounce(t *testing.T) {
 
 	var counter atomic.Int32
 	trigger(func() { counter.Add(1) })
-	require.Equal(t, int32(1), counter.Load())
+	assert.Equal(t, int32(1), counter.Load())
 }

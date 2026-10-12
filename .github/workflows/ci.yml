@@ -2,29 +2,53 @@ on: [push, pull_request]
 name: CI
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - name: Install Go 1.26.4
-        uses: actions/setup-go@v6
+      - name: Install Go 1.27.2
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.26.4"
+          go-version: "1.27.2"
           check-latest: true
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      # Test
+      - name: Test
+        run: go test -v -race ./...
+
+      # Try compile
+      - name: Compile
+        run: go build -o "${{ runner.temp }}/templier" .
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go 1.27.2
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          check-latest: true
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
       # Test and report coverage
       - name: Run tests with coverage
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@v2.3.6
+        uses: coverallsapp/github-action@v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: coverage.out
 
       # Make sure templ generate was executed before commit
       - name: Generate templates
-        run: go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
+        run: go run github.com/a-h/templ/cmd/templ@v0.3.1070 generate
       - name: Check file changes after templ generate
         run: |
           git diff --exit-code
@@ -35,7 +59,3 @@ jobs:
         run: |
           echo "Detected uncommitted changes after running templ generate." \
           "Please regenerate .templ templates and commit changes." && exit 1
-
-      # Try compile
-      - name: Compile
-        run: go build -o /dev/null .

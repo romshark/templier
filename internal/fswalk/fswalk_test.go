@@ -4,10 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/romshark/templier/internal/fswalk"
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func Test(t *testing.T) {
@@ -30,8 +31,8 @@ func Test(t *testing.T) {
 	WriteFile(t, subSubDir_f1_txt, "subSubDir_f1_txt")
 	WriteFile(t, subSubDir_f2_go, "subSubDir_f2_go")
 
-	require.NoError(t, os.MkdirAll(subEmpty, 0o777))
-	require.NoError(t, os.MkdirAll(subSubSubEmpty, 0o777))
+	assert.NoError(t, os.MkdirAll(subEmpty, 0o777))
+	assert.NoError(t, os.MkdirAll(subSubSubEmpty, 0o777))
 
 	t.Run("Files", func(t *testing.T) {
 		f := func(t *testing.T, dir string, expect ...string) {
@@ -41,8 +42,8 @@ func Test(t *testing.T) {
 				actual = append(actual, name)
 				return nil
 			})
-			require.NoError(t, err)
-			require.Equal(t, expect, actual)
+			assert.NoError(t, err)
+			assert.Equal(t, expect, actual)
 		}
 
 		f(t, d,
@@ -66,8 +67,8 @@ func Test(t *testing.T) {
 				actual = append(actual, name)
 				return nil
 			})
-			require.NoError(t, err)
-			require.Equal(t, expect, actual)
+			assert.NoError(t, err)
+			assert.Equal(t, expect, actual)
 		}
 
 		f(t, d,
@@ -92,21 +93,22 @@ func TestFilesSkipsDirSymlink(t *testing.T) {
 
 	// Symlink to a directory: must be skipped, not opened as a file.
 	dirLink := filepath.Join(d, "dirlink")
-	require.NoError(t, os.Symlink(realDir, dirLink))
+	assert.NoError(t, os.Symlink(realDir, dirLink))
 	// Symlink to a file: must still be visited (current behavior).
 	fileLink := filepath.Join(d, "filelink")
-	require.NoError(t, os.Symlink(realFile, fileLink))
+	assert.NoError(t, os.Symlink(realFile, fileLink))
 
 	actual := []string{}
 	err := fswalk.Files(d, func(name string) error {
 		actual = append(actual, name)
 		return nil
 	})
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{
-		realFile, realDir_file, fileLink,
-	}, actual)
-	require.NotContains(t, actual, dirLink)
+	assert.NoError(t, err)
+	expect := []string{realFile, realDir_file, fileLink}
+	slices.Sort(expect)
+	slices.Sort(actual)
+	assert.Equal(t, expect, actual)
+	assert.NotSliceContains(t, actual, dirLink)
 }
 
 func TestFilesFnErr(t *testing.T) {
@@ -123,14 +125,14 @@ func TestFilesFnErr(t *testing.T) {
 		return ErrTest
 	})
 
-	require.ErrorIs(t, err, ErrTest)
-	require.Equal(t, 1, counter)
+	assert.IsError(t, err, ErrTest)
+	assert.Equal(t, 1, counter)
 }
 
 func WriteFile(t *testing.T, path, data string) {
 	t.Helper()
 	err := os.MkdirAll(filepath.Dir(path), 0o777)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	err = os.WriteFile(path, []byte(data), 0o600)
-	require.NoError(t, err)
+	assert.NoError(t, err)
 }

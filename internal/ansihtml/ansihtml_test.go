@@ -3,7 +3,7 @@ package ansihtml
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 // TestConvert checks that ANSI text is turned into escaped HTML with the
@@ -22,7 +22,7 @@ func TestConvert(t *testing.T) {
 			`<span class="ansi-fg-red"> plain</span>` +
 			" end"
 
-		require.Equal(t, want, Convert(input))
+		assert.Equal(t, want, Convert(input))
 	})
 
 	t.Run("malformed and unsupported sequences", func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestConvert(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				require.Equal(t, tt.want, Convert(tt.input))
+				assert.Equal(t, tt.want, Convert(tt.input))
 			})
 		}
 	})
@@ -132,7 +132,7 @@ func TestApplySGR(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := applySGR(append([]string(nil), tt.open...), tt.code)
-			require.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

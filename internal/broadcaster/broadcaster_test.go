@@ -7,14 +7,14 @@ import (
 
 	"github.com/romshark/templier/internal/broadcaster"
 
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestBroadcast(t *testing.T) {
 	t.Parallel()
 
 	b := broadcaster.NewSignalBroadcaster()
-	require.Equal(t, 0, b.Len())
+	assert.Equal(t, 0, b.Len())
 
 	var wg sync.WaitGroup
 	var prepare sync.WaitGroup
@@ -45,13 +45,13 @@ func TestBroadcast(t *testing.T) {
 	})
 
 	prepare.Wait()
-	require.Equal(t, 2, b.Len())
+	assert.Equal(t, 2, b.Len())
 	b.BroadcastNonblock()
 	wg.Wait()
-	require.Equal(t, int32(2), counter.Load())
+	assert.Equal(t, int32(2), counter.Load())
 
 	removed.Wait()
-	require.Equal(t, 0, b.Len())
+	assert.Equal(t, 0, b.Len())
 	b.BroadcastNonblock()
-	require.Equal(t, int32(2), counter.Load())
+	assert.Equal(t, int32(2), counter.Load())
 }

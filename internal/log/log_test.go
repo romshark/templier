@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/alecthomas/assert/v2"
 )
 
 func TestDurStr(t *testing.T) {
@@ -14,7 +14,7 @@ func TestDurStr(t *testing.T) {
 	f := func(input time.Duration, expect string) {
 		t.Helper()
 		fmt.Println(input.String())
-		require.Equal(t, expect, DurStr(input))
+		assert.Equal(t, expect, DurStr(input))
 	}
 
 	// Don't show decimal places
