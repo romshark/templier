@@ -268,9 +268,15 @@ func (c *Config) Validate() error {
 	}
 
 	// Check required binaries.
-	if _, err := exec.LookPath(c.TemplCmd[0]); err != nil {
+	// TemplCmd may still be empty since Validate
+	// can be called before New applies the defaults.
+	templ := "templ"
+	if len(c.TemplCmd) > 0 {
+		templ = c.TemplCmd[0]
+	}
+	if _, err := exec.LookPath(templ); err != nil {
 		return fmt.Errorf("engine: templ command %q is not installed or not in PATH: %w",
-			c.TemplCmd[0], err)
+			templ, err)
 	}
 	if c.Lint {
 		if _, err := exec.LookPath("golangci-lint"); err != nil {

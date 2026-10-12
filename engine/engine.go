@@ -900,17 +900,15 @@ func (e *Engine) lintAndBuildServer(
 }
 
 func (e *Engine) checkTemplVersion(ctx context.Context) error {
-	args := append(append([]string{}, e.conf.TemplCmd[1:]...), "version")
-	out, err := cmdrun.Run(ctx, "", nil, e.logger, e.conf.TemplCmd[0], args...)
+	version, err := cmdrun.RunTemplVersion(ctx, "", e.conf.TemplCmd, e.logger)
 	if err != nil {
 		return err
 	}
-	outStr := strings.TrimSpace(string(out))
-	if supported := supportedTemplVersion(); !strings.HasPrefix(outStr, supported) {
+	if supported := supportedTemplVersion(); !strings.HasPrefix(version, supported) {
 		e.logger.Warn("unsupported templ version",
 			"templier_version", e.version,
 			"supported_templ_version", supported,
-			"current_templ_version", outStr)
+			"current_templ_version", version)
 	}
 	return nil
 }

@@ -9,20 +9,20 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 
 	"github.com/romshark/templier/internal/statetrack"
 )
 
 var ErrExitCode1 = errors.New("exit code 1")
 
-// forceColorEnv uses common color-output env var conventions to keep ANSI
-// colors enabled even when stdout/stderr is a pipe.
-//
-// See:
-//   - https://cmake.org/cmake/help/latest/envvar/CLICOLOR_FORCE.html
-//   - https://force-color.org/
+// forceColorEnv uses common color-output env var conventions ([CLICOLOR_FORCE]
+// and [FORCE_COLOR]) to keep ANSI colors enabled even when stdout/stderr is a pipe.
 //
 // Templier captures that output and renders it in the browser via ansihtml.
+//
+// [CLICOLOR_FORCE]: https://cmake.org/cmake/help/latest/envvar/CLICOLOR_FORCE.html
+// [FORCE_COLOR]: https://force-color.org/
 var forceColorEnv = []string{"FORCE_COLOR=1", "CLICOLOR_FORCE=1"}
 
 // Run runs an arbitrary command and returns (output, ErrExitCode1)
@@ -61,16 +61,49 @@ func ShellName() string {
 	return name
 }
 
-// RunTemplFmt runs `<templCmd> fmt <path>`.
-func RunTemplFmt(ctx context.Context, workDir string, templCmd []string, path string) error {
-	cmd := exec.CommandContext(ctx, templCmd[0], append(templCmd[1:], "fmt", "-fail", path)...)
+// templCommand returns the executable and the arguments necessary to run templ
+// with templArgs through templCmd (for example ["go", "tool", "templ"]).
+// templCmd is never modified.
+func templCommand(templCmd []string, templArgs ...string) (name string, args []string) {
+	return templCmd[0], slices.Concat(templCmd[1:], templArgs)
+}
+
+// RunTemplVersion runs `<templCmd> version` and returns the reported version.
+func RunTemplVersion(
+	ctx context.Context, workDir string, templCmd []string, logger *slog.Logger,
+) (string, error) {
+	name, args := templCommand(templCmd, "version")
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = workDir
+
+	logger.Debug("running command", "cmd", cmd.String())
+	// Only stdout carries the version, stderr may contain unrelated logs
+	// such as `go tool` reporting module downloads.
+	out, err := cmd.Output()
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		// stderr explains the failure, for example that
+		// `go tool` can't find templ among the module's tools.
+		return "", fmt.Errorf("%w: %s", err, bytes.TrimSpace(exitErr.Stderr))
+	} else if err != nil {
+		return "", err
+	}
+	return string(bytes.TrimSpace(out)), nil
+}
+
+// RunTemplFmt runs `<templCmd> fmt -fail <path>`.
+func RunTemplFmt(
+	ctx context.Context, workDir string, templCmd []string, path string,
+) error {
+	name, args := templCommand(templCmd, "fmt", "-fail", path)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = workDir
 	return cmd.Run()
 }
 
-// RunTemplGenerate runs `templ generate` writing production output.
-func RunTemplGenerate(ctx context.Context, workDir string) error {
-	cmd := exec.CommandContext(ctx, "templ", "generate")
+// RunTemplGenerate runs `<templCmd> generate` writing production output.
+func RunTemplGenerate(ctx context.Context, workDir string, templCmd []string) error {
+	name, args := templCommand(templCmd, "generate")
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = workDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", err, string(out))
@@ -101,7 +134,7 @@ func RunTemplWatch(
 ) error {
 	// Don't use CommandContext since it will kill the process
 	// which we don't want. We want the command to finish.
-	args := append(append([]string{}, templCmd[1:]...),
+	name, args := templCommand(templCmd,
 		"generate",
 		"--watch",
 		"--log-level", "debug",
@@ -109,7 +142,7 @@ func RunTemplWatch(
 		// since Templier is already watching .go file changes.
 		"--watch-pattern", `(.+\.templ$)`,
 	)
-	cmd := exec.Command(templCmd[0], args...)
+	cmd := exec.Command(name, args...)
 	cmd.Dir = workDir
 	// Required for the watch process to be stoppable gracefully on Windows.
 	SetProcessGroup(cmd)
@@ -161,7 +194,7 @@ func RunTemplWatch(
 		// the chance to replace the debug components with production output,
 		// hence it's generated explicitly.
 		// ctx is already canceled at this point and can't be used.
-		if err := RunTemplGenerate(context.Background(), workDir); err != nil {
+		if err := RunTemplGenerate(context.Background(), workDir, templCmd); err != nil {
 			return fmt.Errorf("generating templ production output: %w", err)
 		}
 	case err := <-done: // Command finished without interruption.
