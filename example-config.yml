@@ -16,7 +16,7 @@ templier-host: "your-application:11000"
 # and formatting. Defaults to "templ" which requires templ to be
 # installed and available in your $PATH.
 # Use "go tool templ" instead if you have templ installed as a Go tool
-# dependency (see: https://go.dev/blog/tools.go).
+# dependency (see: https://go.dev/doc/modules/managing-dependencies#tools).
 templ-cmd: templ
 
 log:
