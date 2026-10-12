@@ -177,7 +177,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		defer wg.Done()
 		// Run templ in watch mode to create debug components.
 		err := cmdrun.RunTemplWatch(
-			ctx, e.conf.App.DirSrcRoot, e.logger, st, templChange,
+			ctx, e.conf.App.DirSrcRoot, e.conf.TemplCmd, e.logger, st, templChange,
 		)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			err = fmt.Errorf("running templ generate watch mode: %w", err)
@@ -679,7 +679,8 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 	if h.engine.conf.Format && e.Op != fsnotify.Remove && e.Op != fsnotify.Rename {
 		if strings.HasSuffix(e.Name, ".templ") {
 			h.engine.logger.Debug("format templ file", "name", e.Name)
-			if err := cmdrun.RunTemplFmt(ctx, h.engine.conf.App.DirWork, e.Name); err != nil {
+			templCmd := h.engine.conf.TemplCmd
+			if err := cmdrun.RunTemplFmt(ctx, h.engine.conf.App.DirWork, templCmd, e.Name); err != nil {
 				h.engine.logger.Error("templ formatting error", "err", err)
 			}
 		}
@@ -899,16 +900,15 @@ func (e *Engine) lintAndBuildServer(
 }
 
 func (e *Engine) checkTemplVersion(ctx context.Context) error {
-	out, err := cmdrun.Run(ctx, "", nil, e.logger, "templ", "version")
+	version, err := cmdrun.RunTemplVersion(ctx, "", e.conf.TemplCmd, e.logger)
 	if err != nil {
 		return err
 	}
-	outStr := strings.TrimSpace(string(out))
-	if supported := supportedTemplVersion(); !strings.HasPrefix(outStr, supported) {
+	if supported := supportedTemplVersion(); !strings.HasPrefix(version, supported) {
 		e.logger.Warn("unsupported templ version",
 			"templier_version", e.version,
 			"supported_templ_version", supported,
-			"current_templ_version", outStr)
+			"current_templ_version", version)
 	}
 	return nil
 }

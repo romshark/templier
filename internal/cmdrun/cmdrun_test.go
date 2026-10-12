@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -134,4 +138,91 @@ func awaitLine(t *testing.T, lines <-chan string, expected string) {
 			t.Fatalf("timed out waiting for %q", expected)
 		}
 	}
+}
+
+const (
+	// templHelperEnv makes TestTemplHelperProcess act as the templ CLI.
+	templHelperEnv = "TEMPLIER_CMDRUN_TEMPL_HELPER"
+
+	helperTemplVersion  = "v0.0.0-helper"
+	helperGeneratedFile = "helper-generated"
+)
+
+// TestTemplHelperProcess isn't a real test. It's executed as a child process by
+// the RunTempl* tests and imitates the templ CLI, failing on unexpected arguments.
+func TestTemplHelperProcess(t *testing.T) {
+	if os.Getenv(templHelperEnv) != "1" {
+		t.Skip("not running as templ helper process")
+	}
+	args := flag.Args() // The arguments following "--".
+	switch {
+	case slices.Equal(args, []string{"version"}):
+		fmt.Println(helperTemplVersion)
+	case slices.Equal(args, []string{"generate"}):
+		// Leave proof of the invocation in the working directory.
+		if err := os.WriteFile(helperGeneratedFile, nil, 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case len(args) == 3 && args[0] == "fmt" && args[1] == "-fail":
+	default:
+		fmt.Fprintf(os.Stderr, "helper: unexpected arguments %q\n", args)
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+// templHelperCmd returns a templ command running TestTemplHelperProcess,
+// which receives all arguments appended to it.
+func templHelperCmd(t *testing.T) []string {
+	t.Helper()
+	t.Setenv(templHelperEnv, "1")
+	// Unlike os.Args[0], the executable path stays valid
+	// when the command runs in a different working directory.
+	exe, err := os.Executable()
+	assert.NoError(t, err)
+	return []string{exe, "-test.run=^TestTemplHelperProcess$", "--"}
+}
+
+func TestRunTemplVersion(t *testing.T) {
+	version, err := cmdrun.RunTemplVersion(
+		context.Background(), "", templHelperCmd(t), slog.New(slog.DiscardHandler),
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, helperTemplVersion, version)
+}
+
+// TestRunTemplVersionErr makes sure the error includes what the command printed
+// to stderr, since that's where for example `go tool` explains why it failed.
+func TestRunTemplVersionErr(t *testing.T) {
+	templCmd := append(templHelperCmd(t), "unknown")
+	_, err := cmdrun.RunTemplVersion(
+		context.Background(), "", templCmd, slog.New(slog.DiscardHandler),
+	)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), `helper: unexpected arguments ["unknown" "version"]`)
+}
+
+// TestRunTemplGenerate makes sure the configured templ command is run
+// in the working directory, since it's what replaces the debug output
+// when templ watch had to be terminated forcefully.
+func TestRunTemplGenerate(t *testing.T) {
+	workDir := t.TempDir()
+	err := cmdrun.RunTemplGenerate(context.Background(), workDir, templHelperCmd(t))
+	assert.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(workDir, helperGeneratedFile))
+	assert.NoError(t, err, "the templ command must have run in the working directory")
+}
+
+// TestRunTemplFmtKeepsTemplCmd makes sure the arguments aren't appended
+// to the configured templ command in place since it's shared.
+func TestRunTemplFmtKeepsTemplCmd(t *testing.T) {
+	// Spare capacity would allow append to write past the end of templCmd.
+	templCmd := slices.Grow(templHelperCmd(t), 8)
+	before := slices.Clone(templCmd[:cap(templCmd)])
+
+	err := cmdrun.RunTemplFmt(context.Background(), "", templCmd, "page.templ")
+	assert.NoError(t, err)
+	assert.Equal(t, before, templCmd[:cap(templCmd)])
 }
