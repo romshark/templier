@@ -48,8 +48,8 @@ github.com/natefinch/atomic v1.0.1 h1:ZPYKxkqQOx3KZ+RsbnP/YsgvxWQPGxjC0oBt2AhwV0
 github.com/natefinch/atomic v1.0.1/go.mod h1:N/D/ELrljoqDyT3rZrsUmtsuzvHkeB/wWjHV22AZRbM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/romshark/yamagiconf v1.1.1 h1:6cDXJ8O9x3Ywz2DCtblIPTTyS+comqyTkv2VwpWuIkg=
-github.com/romshark/yamagiconf v1.1.1/go.mod h1:ZFFtL+wAAcjWfgKh2tJqiWi9zjT3Bbf1dFmoJH8nWs8=
+github.com/romshark/yamagiconf v1.1.2 h1:FmjefhGiJ0/3QxfQ/vU25/qM+io3V+bF/Rn+mcTqxQo=
+github.com/romshark/yamagiconf v1.1.2/go.mod h1:LCCtyxJdmFyES7TOS7EIVbPboPsrKuRBtkoPdGrlu0Q=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=
