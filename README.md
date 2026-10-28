@@ -200,6 +200,7 @@ watching files in the `app.dir-src-root` directory. The command used to run temp
 can be configured via `templ-cmd`, which defaults to `templ`.
 Set it to `go tool templ` if you have templ installed as a
 Go tool dependency instead of a system-wide binary.
+Templiér warns if the installed templ version differs from the one it was built with.
 On start, it runs all configured custom watchers and then builds your application server
 executable in the OS temp directory (cleaned up on exit at the latest), assuming that
 the main package is specified by the `app.dir-cmd` directory.
