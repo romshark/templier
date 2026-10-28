@@ -1,13 +1,6 @@
-<a href="https://github.com/romshark/templier/actions/workflows/ci.yml">
-    <img src="https://github.com/romshark/templier/actions/workflows/ci.yml/badge.svg" alt="CI">
-</a>
-<a href="https://github.com/romshark/templier/releases/latest">
-    <img src="https://img.shields.io/github/v/release/romshark/templier" alt="Latest release">
-</a>
-<a href="LICENSE">
-    <img src="https://img.shields.io/github/license/romshark/templier" alt="License">
-</a>
-
+[![CI](https://github.com/romshark/templier/actions/workflows/ci.yml/badge.svg)](https://github.com/romshark/templier/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/romshark/templier)](https://github.com/romshark/templier/releases/latest)
+[![License](https://img.shields.io/github/license/romshark/templier)](LICENSE)
 
 <br>
 <br>
