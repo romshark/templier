@@ -739,61 +739,66 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 		}
 	}
 
-	var wg sync.WaitGroup
-	var customWatcherTriggered atomic.Bool
 	var act action.SyncStatus
+	// Triggered watchers report here when done. It's buffered so they
+	// don't block once handle stops waiting.
+	watcherDone := make(chan struct{}, len(h.customWatchers))
+	triggered := 0
 
-	if len(h.customWatchers) > 0 {
-		wg.Add(len(h.customWatchers))
-		for i, w := range h.customWatchers {
-			if !w.isFilePathIncluded(relativeFileName) {
-				wg.Done()
-				continue
-			}
+	for i, w := range h.customWatchers {
+		if !w.isFilePathIncluded(relativeFileName) {
+			continue
+		}
 
-			customWatcherTriggered.Store(true)
-			if w.requires == action.ActionRebuild {
-				// Builds requested while this watcher runs
-				// are merged into the rebuild it requires.
-				h.holdBuilds()
-			}
-			index := i
-			w.debounced(func() {
-				defer wg.Done()
-				start := time.Now()
-				defer func() {
-					h.engine.logger.Info(w.name,
-						"duration", time.Since(start))
-				}()
-				if w.cmd != "" {
-					o, err := cmdrun.Sh(ctx, h.engine.conf.App.DirWork, h.engine.logger, w.cmd)
-					output := string(o)
-					if errors.Is(err, cmdrun.ErrExitCode1) {
-						if w.failOnErr {
-							h.stateTracker.Set(
-								statetrack.IndexOffsetCustomWatcher+index, output)
-							h.reload.BroadcastNonblock()
-						} else {
-							h.engine.logger.Error("custom watcher exited with code 1",
-								"watcher", w.cmd, "output", output)
-						}
-						return
-					} else if err != nil {
-						if w.failOnErr {
-							h.stateTracker.Set(
-								statetrack.IndexOffsetCustomWatcher+index, output)
-						}
-						h.engine.logger.Error("executing custom watcher",
+		triggered++
+		if w.requires == action.ActionRebuild {
+			// Builds requested while this watcher runs
+			// are merged into the rebuild it requires.
+			h.holdBuilds()
+		}
+		index := i
+		w.debounced(func() {
+			defer func() { watcherDone <- struct{}{} }()
+			start := time.Now()
+			defer func() {
+				h.engine.logger.Info(w.name,
+					"duration", time.Since(start))
+			}()
+			if w.cmd != "" {
+				o, err := cmdrun.Sh(ctx, h.engine.conf.App.DirWork, h.engine.logger, w.cmd)
+				output := string(o)
+				if errors.Is(err, cmdrun.ErrExitCode1) {
+					if w.failOnErr {
+						h.stateTracker.Set(
+							statetrack.IndexOffsetCustomWatcher+index, output)
+						h.reload.BroadcastNonblock()
+					} else {
+						h.engine.logger.Error("custom watcher exited with code 1",
 							"watcher", w.cmd, "output", output)
 					}
+					return
+				} else if err != nil {
+					if w.failOnErr {
+						h.stateTracker.Set(
+							statetrack.IndexOffsetCustomWatcher+index, output)
+					}
+					h.engine.logger.Error("executing custom watcher",
+						"watcher", w.cmd, "output", output)
 				}
-				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+index, "")
-				act.Require(w.requires)
-			})
-		}
+			}
+			h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+index, "")
+			act.Require(w.requires)
+		})
 	}
 
-	wg.Wait()
+	// A watcher still in its debounce window never runs once ctx is canceled.
+	for range triggered {
+		select {
+		case <-watcherDone:
+		case <-ctx.Done():
+			return nil
+		}
+	}
 	if h.releaseBuilds() {
 		// A build was held back while the watchers were running. Rebuild regardless
 		// of what they require, the restart and reload that follow cover it.
@@ -801,7 +806,7 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 		h.recompile(ctx, e)
 		return nil
 	}
-	if customWatcherTriggered.Load() {
+	if triggered > 0 {
 		switch act.Load() {
 		case action.ActionNone:
 			h.engine.logger.Debug("custom watchers: no action")
@@ -812,7 +817,10 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 			return nil
 		case action.ActionRestart:
 			h.engine.logger.Debug("custom watchers: rerun app server")
-			h.engine.chRerunServer <- struct{}{}
+			select {
+			case h.engine.chRerunServer <- struct{}{}:
+			case <-ctx.Done(): // The launcher may have stopped.
+			}
 			return nil
 		default:
 			h.engine.logger.Debug("custom watchers: rebuild app server")

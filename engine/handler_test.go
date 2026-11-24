@@ -13,6 +13,7 @@ import (
 	"github.com/romshark/templier/internal/action"
 	"github.com/romshark/templier/internal/broadcaster"
 	"github.com/romshark/templier/internal/ctxrun"
+	"github.com/romshark/templier/internal/debounce"
 	"github.com/romshark/templier/internal/statetrack"
 	"github.com/romshark/templier/internal/watcher"
 
@@ -212,6 +213,80 @@ func TestBuildHeldBackDuringRebuildWatcher(t *testing.T) {
 			assert.Equal(t, int32(1), builds.Load())
 		})
 	}
+}
+
+// TestHandleReturnsOnCancel verifies that handle returns once ctx is canceled
+// instead of waiting forever for custom watchers or the app launcher.
+func TestHandleReturnsOnCancel(t *testing.T) {
+	newHandler := func(debounced func(func()), requires action.Type) *fileChangeHandler {
+		base := t.TempDir()
+		return &fileChangeHandler{
+			engine: &Engine{
+				logger:         slog.Default(),
+				chRerunServer:  make(chan struct{}, 1),
+				chRunNewServer: make(chan string, 1),
+			},
+			watchBasePath: base,
+			stateTracker:  statetrack.NewTracker(1),
+			reload:        broadcaster.NewSignalBroadcaster(),
+			debounced:     func(fn func()) { fn() },
+			buildRunner:   ctxrun.New(),
+			build:         func(context.Context) string { return "" },
+			customWatchers: []customWatcher{{
+				name:      "watcher",
+				include:   []string{"**/*.go"},
+				debounced: debounced,
+				requires:  requires,
+			}},
+		}
+	}
+
+	assertReturns := func(t *testing.T, handleErr <-chan error) {
+		t.Helper()
+		select {
+		case err := <-handleErr:
+			assert.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("handle didn't return after the context was canceled")
+		}
+	}
+
+	t.Run("canceled during debounce", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		// Canceling ctx makes the debouncer drop the pending watcher run.
+		runDebouncer, debounced := debounce.NewSync(50 * time.Millisecond)
+		go runDebouncer(ctx)
+		h := newHandler(debounced, action.ActionRestart)
+
+		handleErr := make(chan error, 1)
+		go func() {
+			handleErr <- h.handle(ctx, fsnotify.Event{
+				Name: filepath.Join(h.watchBasePath, "app.go"), Op: fsnotify.Write,
+			})
+		}()
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+		assertReturns(t, handleErr)
+	})
+
+	t.Run("canceled with launcher stopped", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		h := newHandler(func(fn func()) { fn() }, action.ActionRestart)
+		// A rerun is still queued, but the launcher has stopped.
+		h.engine.chRerunServer <- struct{}{}
+
+		handleErr := make(chan error, 1)
+		go func() {
+			handleErr <- h.handle(ctx, fsnotify.Event{
+				Name: filepath.Join(h.watchBasePath, "app.go"), Op: fsnotify.Write,
+			})
+		}()
+		assertReturns(t, handleErr)
+	})
 }
 
 // TestBuildServerRemovesGoTmpDir verifies that go build's temporary files
