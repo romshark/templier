@@ -90,6 +90,27 @@ func RunTemplVersion(
 	return string(bytes.TrimSpace(out)), nil
 }
 
+// RunGoEnv runs `go env <name>` and returns the value it reports.
+func RunGoEnv(
+	ctx context.Context, workDir string, envVars []string,
+	logger *slog.Logger, name string,
+) (string, error) {
+	cmd := exec.CommandContext(ctx, "go", "env", name)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), envVars...)
+
+	logger.Debug("running command", "cmd", cmd.String())
+	// Only stdout carries the value, stderr may contain
+	// unrelated logs such as toolchain downloads.
+	out, err := cmd.Output()
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return "", fmt.Errorf("%w: %s", err, bytes.TrimSpace(exitErr.Stderr))
+	} else if err != nil {
+		return "", err
+	}
+	return string(bytes.TrimSpace(out)), nil
+}
+
 // RunTemplFmt runs `<templCmd> fmt -fail <path>`.
 func RunTemplFmt(
 	ctx context.Context, workDir string, templCmd []string, path string,

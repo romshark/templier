@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +69,10 @@ type Engine struct {
 	rerunActive    atomic.Bool
 	chRerunServer  chan struct{}
 	chRunNewServer chan string
+
+	// goTmpDir is where each go build gets its own GOTMPDIR.
+	// Empty means the OS temp directory.
+	goTmpDir string
 }
 
 // Options configures an [Engine].
@@ -162,6 +167,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 	}()
 
+	e.goTmpDir = e.resolveGoTmpDir(ctx, tempDirPath)
+	e.logger.Debug("set go build temporary files path", "path", e.goTmpDir)
+
 	reload := broadcaster.NewSignalBroadcaster()
 	st := statetrack.NewTracker(len(e.conf.CustomWatchers))
 
@@ -224,8 +232,10 @@ func (e *Engine) Run(ctx context.Context) error {
 		return nil
 	})
 
+	// Only the debouncer starts builds after the initial one, so once it stops,
+	// no new build can start while Run waits for the running ones.
 	debouncer, debounced := debounce.NewSync(e.conf.Debounce)
-	go debouncer(ctx)
+	wg.Go(func() { debouncer(ctx) })
 
 	// Initial build: run all custom watcher commands,
 	// then if they succeed, lint & build.
@@ -255,13 +265,15 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	handler := &fileChangeHandler{
-		engine:            e,
-		binaryOutBasePath: tempDirPath,
-		customWatchers:    customWatchers,
-		stateTracker:      st,
-		reload:            reload,
-		debounced:         debounced,
-		buildRunner:       ctxrun.New(),
+		engine:         e,
+		customWatchers: customWatchers,
+		stateTracker:   st,
+		reload:         reload,
+		debounced:      debounced,
+		buildRunner:    ctxrun.New(),
+		build: func(ctx context.Context) (newBinaryPath string) {
+			return e.lintAndBuildServer(ctx, st, tempDirPath)
+		},
 	}
 
 	handler.watchBasePath, err = filepath.Abs(e.conf.App.DirWork)
@@ -351,6 +363,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 	e.logger.Debug("waiting for remaining sub-processes to shut down")
 	wg.Wait()
+	// Let canceled builds remove their temporary files first.
+	handler.buildRunner.Wait()
 	// Return the sub-process error (e.g. an HTTP server that failed to bind the
 	// templier port) instead of swallowing it. Without this the caller can't
 	// distinguish a normal shutdown from a fatal startup failure.
@@ -645,14 +659,53 @@ func (e *Engine) runAppLauncher(
 
 // fileChangeHandler handles file system change events.
 type fileChangeHandler struct {
-	engine            *Engine
-	binaryOutBasePath string
-	watchBasePath     string
-	customWatchers    []customWatcher
-	stateTracker      *statetrack.Tracker
-	reload            *broadcaster.SignalBroadcaster
-	debounced         func(fn func())
-	buildRunner       *ctxrun.Runner
+	engine         *Engine
+	watchBasePath  string
+	customWatchers []customWatcher
+	stateTracker   *statetrack.Tracker
+	reload         *broadcaster.SignalBroadcaster
+	debounced      func(fn func())
+	buildRunner    *ctxrun.Runner
+
+	// build lints and builds the app server and returns the new binary's path,
+	// or "" if none was built.
+	build func(ctx context.Context) (newBinaryPath string)
+
+	// holdLock protects holding and heldBack.
+	holdLock sync.Mutex
+	// holding is true while custom watchers requiring a rebuild are running.
+	// Builds requested meanwhile are held back and merged into that rebuild
+	// instead of being started only to be canceled by it.
+	holding bool
+	// heldBack is true if a build was held back.
+	heldBack bool
+}
+
+// holdBuilds holds back builds until releaseBuilds is called.
+func (h *fileChangeHandler) holdBuilds() {
+	h.holdLock.Lock()
+	defer h.holdLock.Unlock()
+	h.holding = true
+}
+
+// releaseBuilds stops holding back builds and reports whether any were held back.
+func (h *fileChangeHandler) releaseBuilds() (heldBack bool) {
+	h.holdLock.Lock()
+	defer h.holdLock.Unlock()
+	heldBack = h.heldBack
+	h.holding, h.heldBack = false, false
+	return heldBack
+}
+
+// holdBack reports whether builds are being held back and if so,
+// records that one was.
+func (h *fileChangeHandler) holdBack() bool {
+	h.holdLock.Lock()
+	defer h.holdLock.Unlock()
+	if h.holding {
+		h.heldBack = true
+	}
+	return h.holding
 }
 
 func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error {
@@ -699,6 +752,11 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 			}
 
 			customWatcherTriggered.Store(true)
+			if w.requires == action.ActionRebuild {
+				// Builds requested while this watcher runs
+				// are merged into the rebuild it requires.
+				h.holdBuilds()
+			}
 			index := i
 			w.debounced(func() {
 				defer wg.Done()
@@ -736,6 +794,13 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 	}
 
 	wg.Wait()
+	if h.releaseBuilds() {
+		// A build was held back while the watchers were running. Rebuild regardless
+		// of what they require, the restart and reload that follow cover it.
+		h.engine.logger.Debug("custom watchers: rebuild app server (held back build)")
+		h.recompile(ctx, e)
+		return nil
+	}
 	if customWatcherTriggered.Load() {
 		switch act.Load() {
 		case action.ActionNone:
@@ -794,10 +859,12 @@ func (h *fileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 			h.engine.logger.Info("file changed",
 				"op", e.Op.String(), "name", e.Name)
 		}
+		if h.holdBack() {
+			h.engine.logger.Debug("hold back build until custom watchers finish")
+			return
+		}
 		h.buildRunner.Go(ctx, func(ctx context.Context) {
-			newBinaryPath := h.engine.lintAndBuildServer(
-				ctx, h.stateTracker, h.binaryOutBasePath,
-			)
+			newBinaryPath := h.build(ctx)
 			if h.stateTracker.ErrIndex() != -1 {
 				h.reload.BroadcastNonblock()
 				return
@@ -805,7 +872,11 @@ func (h *fileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 			if newBinaryPath == "" {
 				return
 			}
-			h.engine.chRunNewServer <- newBinaryPath
+			select {
+			case h.engine.chRunNewServer <- newBinaryPath:
+			case <-ctx.Done():
+				// The app launcher may have stopped and would never receive.
+			}
 		})
 	})
 }
@@ -846,9 +917,20 @@ func (e *Engine) buildServer(
 		compilerEnv = e.conf.Compiler.Env
 	}
 
+	// go build doesn't remove its work directory when it's killed,
+	// so give each build its own GOTMPDIR and remove it afterwards.
+	env := compilerEnv
+	if goTmpDir, err := os.MkdirTemp(e.goTmpDir, "templier-build-*"); err != nil {
+		e.logger.Error("creating go build temporary directory", "err", err)
+	} else {
+		defer e.removeGoTmpDir(goTmpDir)
+		// Appended last to override any GOTMPDIR in compilerEnv.
+		env = slices.Concat(compilerEnv, []string{"GOTMPDIR=" + goTmpDir})
+	}
+
 	args := append([]string{"build"}, compilerFlags...)
 	args = append(args, "-o", binaryPath, e.conf.App.DirCmd)
-	buf, err := cmdrun.Run(ctx, "", compilerEnv, e.logger, "go", args...)
+	buf, err := cmdrun.Run(ctx, "", env, e.logger, "go", args...)
 	if errors.Is(ctx.Err(), context.Canceled) {
 		e.logger.Debug("go build cmd aborted")
 		return
@@ -864,6 +946,44 @@ func (e *Engine) buildServer(
 	st.Set(statetrack.IndexExit, "")
 	e.logger.Info("compiled cmd/server", "duration", time.Since(startBuilding))
 	return binaryPath
+}
+
+// resolveGoTmpDir returns where each go build gets its own GOTMPDIR:
+// the GOTMPDIR set by the user (in Compiler.Env, the environment
+// or the go env file), or defaultDir if there's none.
+func (e *Engine) resolveGoTmpDir(ctx context.Context, defaultDir string) string {
+	var compilerEnv []string
+	if e.conf.Compiler != nil {
+		compilerEnv = e.conf.Compiler.Env
+	}
+	dir, err := cmdrun.RunGoEnv(ctx, "", compilerEnv, e.logger, "GOTMPDIR")
+	if err != nil {
+		e.logger.Error("reading GOTMPDIR from go env", "err", err)
+		return defaultDir
+	}
+	if dir == "" {
+		return defaultDir
+	}
+	return dir
+}
+
+// removeGoTmpDir removes a finished go build's GOTMPDIR. It retries because
+// the compiler and linker processes of a killed build keep running
+// and may still write to it for a short while.
+func (e *Engine) removeGoTmpDir(path string) {
+	const attempts, retryInterval = 20, 100 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		err := os.RemoveAll(path)
+		if err == nil {
+			return
+		}
+		if attempt == attempts {
+			e.logger.Error("removing go build temporary directory",
+				"path", path, "err", err)
+			return
+		}
+		time.Sleep(retryInterval)
+	}
 }
 
 func makeUniqueServerOutPath(basePath string) string {

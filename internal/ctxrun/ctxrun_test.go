@@ -2,7 +2,9 @@ package ctxrun_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/romshark/templier/internal/ctxrun"
 	"github.com/alecthomas/assert/v2"
@@ -34,6 +36,34 @@ func TestRunner(t *testing.T) {
 
 	assert.NoError(t, <-ctxErrBefore2)
 	assert.Equal(t, context.Canceled, <-ctxErrAfter)
+}
+
+// TestRunnerWait makes sure Wait blocks until all goroutines have returned,
+// canceled ones included.
+func TestRunnerWait(t *testing.T) {
+	r := ctxrun.New()
+
+	unblock := make(chan struct{})
+	var returned atomic.Int32
+	for range 2 {
+		r.Go(context.Background(), func(ctx context.Context) {
+			<-unblock
+			returned.Add(1)
+		})
+	}
+
+	waitReturned := make(chan struct{})
+	go func() { r.Wait(); close(waitReturned) }()
+
+	select {
+	case <-waitReturned:
+		t.Fatal("Wait returned while goroutines were still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(unblock)
+	<-waitReturned
+	assert.Equal(t, int32(2), returned.Load())
 }
 
 // TestRunnerPassCtx makes sure the context passed to Go is the same

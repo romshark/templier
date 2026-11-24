@@ -13,6 +13,7 @@ type Runner struct {
 	lock    sync.Mutex
 	counter uint64
 	cancel  context.CancelFunc
+	running sync.WaitGroup
 }
 
 // Go cancels the context of the currently running goroutine (if any) and runs
@@ -31,7 +32,7 @@ func (r *Runner) Go(ctx context.Context, fn func(ctx context.Context)) {
 	ctx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 
-	go func() {
+	r.running.Go(func() {
 		defer func() {
 			// Clear the cancel function once fn returns.
 			r.lock.Lock()
@@ -43,5 +44,9 @@ func (r *Runner) Go(ctx context.Context, fn func(ctx context.Context)) {
 		}()
 
 		fn(ctx)
-	}()
+	})
 }
+
+// Wait blocks until all goroutines started by Go have returned, canceled ones included.
+// Like [sync.WaitGroup.Wait], it must not run concurrently with [sync.WaitGroup.Go].
+func (r *Runner) Wait() { r.running.Wait() }
