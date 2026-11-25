@@ -442,10 +442,15 @@ func (e *Engine) runAppLauncher(
 	var srvExited atomic.Bool
 	srvExited.Store(true)
 
+	// stopping is true once templier stops the app server,
+	// so its exit isn't reported as a crash.
+	var stopping atomic.Bool
+
 	stopServer := func() (stopped bool) {
 		if latestSrvCmd == nil || latestSrvCmd.Process == nil || srvExited.Load() {
 			return false // No app server process to stop.
 		}
+		stopping.Store(true)
 		e.logger.Debug("stopping app server", "pid", latestSrvCmd.Process.Pid)
 		graceful, err := cmdrun.StopProcess(latestSrvCmd.Process)
 		if err != nil {
@@ -525,28 +530,29 @@ func (e *Engine) runAppLauncher(
 		e.logger.Info("restarting server", "cmd", e.conf.App.DirCmd)
 
 		e.logger.Debug("running app server command", "command", latestSrvCmd.String())
+		stopping.Store(false)
 		if err := c.Start(); err != nil {
 			e.logger.Error("running app server",
 				"cmd", e.conf.App.DirCmd, "err", err)
+			return
 		}
-		if c.Process != nil {
-			e.logger.Debug("app server running", "pid", c.Process.Pid)
-			srvExited.Store(false)
-		}
+		e.logger.Debug("app server running", "pid", c.Process.Pid)
+		srvExited.Store(false)
 
-		var exitCode atomic.Int32
-		exitCode.Store(-1)
 		waitExit.Go(func() {
-			defer srvExited.Store(true)
-			err := c.Wait()
-			if err == nil {
-				return
+			_ = c.Wait()
+			srvExited.Store(true)
+			if stopping.Load() || ctx.Err() != nil {
+				return // Stopped by templier.
 			}
-			if exitError, ok := err.(*exec.ExitError); ok {
-				exitCode.Store(int32(exitError.ExitCode()))
-				return
+			// Show the crash in the browser.
+			e.logger.Error("app server exited", "status", c.ProcessState)
+			msg := bufOutputCombined.String()
+			if strings.TrimSpace(msg) == "" {
+				msg = "app server exited: " + c.ProcessState.String()
 			}
-			e.logger.Error("health check: waiting for process", "err", err)
+			stateTracker.Set(statetrack.IndexExit, msg)
+			reload.BroadcastNonblock()
 		})
 
 		const maxRetries = 100
@@ -582,11 +588,8 @@ func (e *Engine) runAppLauncher(
 				return
 			}
 			e.logger.Debug("health check error", "err", err)
-			if code := exitCode.Load(); code != -1 && code != 0 {
-				e.logger.Error("health check: app server exited",
-					"exit_code", code)
-				stateTracker.Set(statetrack.IndexExit, bufOutputCombined.String())
-				return
+			if srvExited.Load() {
+				return // The exit is reported above.
 			}
 			e.logger.Debug("health check: waiting",
 				"interval", serverHealthPreflightWaitInterval)
