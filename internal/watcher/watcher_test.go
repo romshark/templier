@@ -484,6 +484,52 @@ func TestWatcherUnignore(t *testing.T) {
 	ExpectWatched(t, w, []string{base, filepath.Join(base, ".hidden")})
 }
 
+// TestWatcherSkipsUnreadableDirs verifies that an unreadable directory doesn't
+// stop the watcher, and that an ignored one isn't entered at all.
+func TestWatcherSkipsUnreadableDirs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows doesn't deny reading directories by mode")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any directory")
+	}
+
+	for _, tt := range []struct {
+		name   string
+		ignore []string
+	}{
+		{name: "ignored", ignore: []string{"locked/**"}},
+		{name: "not ignored"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			MustMkdir(t, base, "src")
+			MustMkdir(t, base, "locked")
+			MustMkdir(t, base, "locked", "sub")
+			locked := filepath.Join(base, "locked")
+			assert.NoError(t, os.Chmod(locked, 0))
+			// Let t.TempDir remove it.
+			t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+			w, err := watcher.New(base, slog.Default(),
+				func(context.Context, fsnotify.Event) error { return nil })
+			assert.NoError(t, err)
+			for _, pattern := range tt.ignore {
+				assert.NoError(t, w.Ignore(pattern))
+			}
+			assert.NoError(t, w.Add(base))
+
+			ctx, cancel := context.WithCancel(t.Context())
+			runErr := make(chan error, 1)
+			go func() { runErr <- w.Run(ctx) }()
+			w.WaitRunning()
+			ExpectWatched(t, w, []string{base, filepath.Join(base, "src")})
+			cancel()
+			assert.IsError(t, <-runErr, context.Canceled)
+		})
+	}
+}
+
 func ExpectWatched(t *testing.T, w *watcher.Watcher, expect []string) {
 	t.Helper()
 	actual := []string{}

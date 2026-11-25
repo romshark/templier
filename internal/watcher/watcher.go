@@ -16,7 +16,6 @@ import (
 	"log/slog"
 
 	"github.com/romshark/templier/internal/filereg"
-	"github.com/romshark/templier/internal/fswalk"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
@@ -148,12 +147,15 @@ func (w *Watcher) Run(ctx context.Context) (err error) {
 
 	func() { // Register all files from the base dir
 		defer w.lock.Unlock()
-		err = fswalk.Files(w.baseDir, func(name string) error {
-			if err := w.isExluded(name); err != nil {
-				if err == errExcluded {
-					return nil // Object is excluded from watcher, don't notify
+		err = w.walk(w.baseDir, func(name string, d fs.DirEntry) error {
+			if d.IsDir() {
+				return nil
+			}
+			if d.Type()&fs.ModeSymlink != 0 {
+				// Symlinked directories aren't walked, don't read them as files.
+				if info, err := os.Stat(name); err == nil && info.IsDir() {
+					return nil
 				}
-				return fmt.Errorf("isExluded: %w", err)
 			}
 			if _, err := w.fileRegistry.Add(name); err != nil {
 				// A file that vanished or is temporarily inaccessible while
@@ -239,12 +241,9 @@ func (w *Watcher) handleEvent(ctx context.Context, e fsnotify.Event) error {
 			// New sub-directory was created, start watching it.
 			if err := w.add(e.Name); err != nil {
 				w.lock.Unlock()
-				// Ignore not exist errors since those are usually triggered
-				// by tools creating and deleting temporary directories so quickly
-				// that the watcher sees the event but the dir is already gone.
-				if errors.Is(err, fs.ErrNotExist) {
-					w.logger.Debug("adding created directory", "name",
-						e.Name, "err", err)
+				// Tools often create and delete temporary directories so quickly
+				// that the directory is already gone when the event arrives.
+				if w.skippable(e.Name, err) {
 					return nil
 				}
 				return fmt.Errorf("adding created directory: %w", err)
@@ -349,25 +348,73 @@ func (w *Watcher) Add(dir string) error {
 
 func (w *Watcher) add(dir string) error {
 	w.logger.Debug("watching directory", "dir", dir)
-	err := forEachDir(dir, func(dir string) error {
-		if err := w.isExluded(dir); err != nil {
-			if err == errExcluded {
-				return nil // Directory is exluded from watching.
-			}
+	return w.walk(dir, func(dir string, d fs.DirEntry) error {
+		if !d.IsDir() {
+			return nil
 		}
 		if _, ok := w.watchedDirs[dir]; ok {
-			return errStopTraversal // Directory already watched.
+			return filepath.SkipDir // Already watched.
+		}
+		if err := w.watchDir(dir); err != nil {
+			return err
 		}
 		w.watchedDirs[dir] = struct{}{}
-		return w.watcher.Add(dir)
-	})
-	if err == errStopTraversal {
 		return nil
+	})
+}
+
+// watchDir starts watching dir.
+func (w *Watcher) watchDir(dir string) error {
+	err := w.watcher.Add(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, statErr := os.Lstat(dir); statErr == nil {
+			// With kqueue (macOS, BSD), fsnotify also fails when an entry of dir
+			// vanishes while dir is being added. dir is watched nonetheless,
+			// and the removal makes fsnotify watch the remaining entries.
+			w.logger.Debug("entry vanished while adding directory",
+				"dir", dir, "err", err)
+			return nil
+		}
 	}
 	return err
 }
 
-var errStopTraversal = errors.New("stop recursive traversal")
+// walk calls fn for root and everything below it that isn't excluded, without entering
+// excluded directories. Paths below root that vanish or can't be read are skipped.
+func (w *Watcher) walk(root string, fn func(path string, d fs.DirEntry) error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil {
+			err = w.isExluded(path)
+			if err == nil {
+				err = fn(path, d)
+			}
+		}
+		switch {
+		case err == nil:
+			return nil
+		case err == errExcluded, path != root && w.skippable(path, err):
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return err
+	})
+}
+
+// skippable reports whether err means that path vanished or can't be read,
+// which mustn't stop the watcher, and logs it if so.
+func (w *Watcher) skippable(path string, err error) bool {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		w.logger.Debug("skipping removed path", "path", path, "err", err)
+	case errors.Is(err, fs.ErrPermission):
+		w.logger.Warn("skipping unreadable path", "path", path, "err", err)
+	default:
+		return false
+	}
+	return true
+}
 
 // Remove stops watching the directory and all of its subdirectories recursively.
 // Returns ErrClosed if the watcher is already closed or not running.
@@ -457,23 +504,4 @@ func (w *Watcher) isDirEvent(e fsnotify.Event) bool {
 	}
 	_, ok := w.watchedDirs[e.Name]
 	return ok
-}
-
-// forEachDir executes fn for every subdirectory of pathDir,
-// including pathDir itself, recursively.
-func forEachDir(pathDir string, fn func(dir string) error) error {
-	// Use filepath.Walk to traverse directories
-	err := filepath.Walk(pathDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err // Stop walking the directory tree.
-		}
-		if !info.IsDir() {
-			return nil // Continue walking.
-		}
-		if err = fn(path); err != nil {
-			return err
-		}
-		return nil
-	})
-	return err
 }
