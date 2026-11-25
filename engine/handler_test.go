@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -440,6 +442,107 @@ func TestCustomWatcherDebounceMergesEvents(t *testing.T) {
 		t.Fatal("custom watcher ran once per change")
 	case <-time.After(300 * time.Millisecond):
 	}
+}
+
+// TestRecompileRemovesUnusedBinary verifies that a binary that won't be run
+// is removed instead of being left on disk until templier exits.
+func TestRecompileRemovesUnusedBinary(t *testing.T) {
+	newHandler := func(
+		st *statetrack.Tracker, build func(context.Context) string,
+	) *fileChangeHandler {
+		return &fileChangeHandler{
+			engine: &Engine{
+				logger:         slog.Default(),
+				chRerunServer:  make(chan struct{}, 1),
+				chRunNewServer: make(chan string, 1),
+			},
+			stateTracker: st,
+			reload:       broadcaster.NewSignalBroadcaster(),
+			debounced:    func(fn func()) { fn() },
+			buildRunner:  ctxrun.New(),
+			build:        build,
+		}
+	}
+	newBinary := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "server")
+		assert.NoError(t, os.WriteFile(path, nil, 0o755))
+		return path
+	}
+	assertRemoved := func(t *testing.T, h *fileChangeHandler, path string) {
+		t.Helper()
+		h.buildRunner.Wait()
+		assert.Equal(t, 0, len(h.engine.chRunNewServer),
+			"binary sent to the app launcher")
+		_, err := os.Stat(path)
+		assert.IsError(t, err, os.ErrNotExist, "binary left on disk")
+	}
+
+	t.Run("superseded", func(t *testing.T) {
+		// The first build compiles while linting is still running,
+		// then a newer build cancels it.
+		path := newBinary(t)
+		compiled := make(chan struct{})
+		var builds atomic.Int32
+		h := newHandler(statetrack.NewTracker(0), func(ctx context.Context) string {
+			if builds.Add(1) > 1 {
+				return ""
+			}
+			close(compiled)
+			<-ctx.Done()
+			return path
+		})
+		h.recompile(t.Context(), fsnotify.Event{})
+		<-compiled
+		h.recompile(t.Context(), fsnotify.Event{})
+		assertRemoved(t, h, path)
+	})
+
+	t.Run("error state", func(t *testing.T) {
+		st := statetrack.NewTracker(1)
+		st.Set(statetrack.IndexOffsetCustomWatcher, "custom watcher failed")
+		path := newBinary(t)
+		h := newHandler(st, func(context.Context) string { return path })
+		h.recompile(t.Context(), fsnotify.Event{})
+		assertRemoved(t, h, path)
+	})
+}
+
+// TestBuildServerCanceledRemovesBinary verifies that a build canceled
+// after go build wrote the binary doesn't leave it on disk.
+func TestBuildServerCanceledRemovesBinary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs go build")
+	}
+	e := &Engine{
+		conf:     Config{App: AppConfig{DirCmd: "./testdata/hello"}},
+		logger:   slog.Default(),
+		goTmpDir: t.TempDir(),
+	}
+	outDir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Cancel as soon as the binary is written.
+	// Ignore the file go build briefly creates next to it to detect the umask.
+	go func() {
+		isBinary := func(p string) bool { return !strings.HasSuffix(p, "-go-tmp-umask") }
+		pattern := filepath.Join(outDir, "server_*")
+		for ctx.Err() == nil {
+			if m, _ := filepath.Glob(pattern); slices.ContainsFunc(m, isBinary) {
+				cancel()
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	if e.buildServer(ctx, statetrack.NewTracker(0), outDir) != "" {
+		t.Skip("go build returned before it was canceled")
+	}
+	entries, err := os.ReadDir(outDir)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(entries), "binary left on disk")
 }
 
 // TestBuildServerRemovesGoTmpDir verifies that go build's temporary files

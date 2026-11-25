@@ -889,17 +889,22 @@ func (h *fileChangeHandler) recompile(ctx context.Context, e fsnotify.Event) {
 		h.buildRunner.Go(ctx, func(ctx context.Context) {
 			newBinaryPath := h.build(ctx)
 			if h.stateTracker.ErrIndex() != -1 {
+				h.engine.removeBinary(newBinaryPath)
 				h.reload.BroadcastNonblock()
 				return
 			}
 			if newBinaryPath == "" {
 				return
 			}
-			select {
-			case h.engine.chRunNewServer <- newBinaryPath:
-			case <-ctx.Done():
-				// The app launcher may have stopped and would never receive.
+			if ctx.Err() == nil {
+				select {
+				case h.engine.chRunNewServer <- newBinaryPath:
+					return
+				case <-ctx.Done():
+				}
 			}
+			// A newer build superseded this one, or templier is stopping.
+			h.engine.removeBinary(newBinaryPath)
 		})
 	})
 }
@@ -956,6 +961,8 @@ func (e *Engine) buildServer(
 	buf, err := cmdrun.Run(ctx, "", env, e.logger, "go", args...)
 	if errors.Is(ctx.Err(), context.Canceled) {
 		e.logger.Debug("go build cmd aborted")
+		// go build may have written the binary before it was canceled.
+		e.removeBinary(binaryPath)
 		return
 	}
 	if err != nil {
@@ -1006,6 +1013,16 @@ func (e *Engine) removeGoTmpDir(path string) {
 			return
 		}
 		time.Sleep(retryInterval)
+	}
+}
+
+// removeBinary removes an app server binary that won't be run, if any.
+func (e *Engine) removeBinary(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		e.logger.Error("removing binary file", "path", path, "err", err)
 	}
 }
 
