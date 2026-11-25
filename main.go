@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"syscall"
 
 	"github.com/romshark/templier/engine"
 	"github.com/romshark/templier/internal/config"
@@ -47,7 +48,10 @@ func main() {
 	}
 	logger := slog.New(log.NewHandler(os.Stdout, &lvl))
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	// kill and process managers send SIGTERM by default.
+	// On Windows, Go reports console close, logoff and shutdown events as SIGTERM.
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	eng, err := engine.New(conf, engine.Options{
