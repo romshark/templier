@@ -8,6 +8,11 @@ Releases up to v0.13.5 have their notes on
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-11-26
+
+Fix bugs in the proxy, file watching, custom watchers and shutdown, and
+show warnings by default.
+
 ### Changed
 
 - Show warnings at the default log level `erronly`, such as for an unsupported templ version or a custom watcher command that isn't installed.
@@ -31,4 +36,5 @@ Releases up to v0.13.5 have their notes on
 - Show the error page when the app server crashes after it has started. Pages returned 502 and nothing was logged.
 - Resolve a relative `app.dir-cmd` against templier's working directory, like the other paths. With an `app.dir-work` other than `./`, it was rejected or failed to build.
 
-[Unreleased]: https://github.com/romshark/templier/compare/v0.13.5...HEAD
+[Unreleased]: https://github.com/romshark/templier/compare/v0.13.6...HEAD
+[0.13.6]: https://github.com/romshark/templier/compare/v0.13.5...v0.13.6
