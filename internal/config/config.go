@@ -413,9 +413,8 @@ func MustParse(version, commit, date string) engine.Config {
 
 	mustBeDir("app.dir-src-root", conf.App.DirSrcRoot)
 	mustBeDir("app.dir-work", conf.App.DirWork)
-	// dir-cmd is resolved relative to dir-work since that's
-	// the directory the Go compiler is invoked from.
-	mustBeDir("app.dir-cmd", resolveRelative(conf.App.DirWork, conf.App.DirCmd))
+	// Like the others, relative to where templier runs, as go build runs there too.
+	mustBeDir("app.dir-cmd", conf.App.DirCmd)
 	if conf.TLS != nil {
 		mustBeFile("tls.cert", conf.TLS.Cert)
 		mustBeFile("tls.key", conf.TLS.Key)
@@ -457,14 +456,6 @@ func MustParse(version, commit, date string) engine.Config {
 	}
 
 	return toEngineConfig(&conf)
-}
-
-// resolveRelative resolves p against base unless p is already absolute.
-func resolveRelative(base, p string) string {
-	if filepath.IsAbs(p) {
-		return p
-	}
-	return filepath.Join(base, p)
 }
 
 // mustBeDir terminates the process unless p is an existing directory.

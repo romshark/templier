@@ -112,8 +112,7 @@ app:
     - .* # all hidden files and directories
     - "*~" # all temporary files with a tilde (fixes jetbrains IDEs save)
 
-  # app.dir-cmd defines the path to the main package directory
-  # within the app source directory.
+  # app.dir-cmd defines the path to the main package directory.
   dir-cmd: ./cmd/server/
 
   # app.dir-work defines the path to the workspace directory
