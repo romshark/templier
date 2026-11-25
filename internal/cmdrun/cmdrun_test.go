@@ -164,7 +164,7 @@ func TestTemplHelperProcess(t *testing.T) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case len(args) == 3 && args[0] == "fmt" && args[1] == "-fail":
+	case len(args) == 2 && args[0] == "fmt":
 	default:
 		fmt.Fprintf(os.Stderr, "helper: unexpected arguments %q\n", args)
 		os.Exit(2)

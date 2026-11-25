@@ -118,11 +118,12 @@ func RunGoEnv(
 	return string(bytes.TrimSpace(out)), nil
 }
 
-// RunTemplFmt runs `<templCmd> fmt -fail <path>`.
+// RunTemplFmt runs `<templCmd> fmt <path>`. Not with -fail,
+// which makes templ exit with 1 whenever it changed the file.
 func RunTemplFmt(
 	ctx context.Context, workDir string, templCmd []string, path string,
 ) error {
-	name, args := templCommand(templCmd, "fmt", "-fail", path)
+	name, args := templCommand(templCmd, "fmt", path)
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = workDir
 	return cmd.Run()
