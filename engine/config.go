@@ -195,7 +195,7 @@ type CustomWatcherConfig struct {
 	Debounce time.Duration
 
 	// FailOnErr shows the command's error output in the browser
-	// (like a build error) when the command exits with code 1.
+	// (like a build error) when the command fails.
 	FailOnErr bool
 
 	// Requires defines what action is required when an included file changes.

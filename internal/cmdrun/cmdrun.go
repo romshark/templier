@@ -25,8 +25,8 @@ var ErrExitCode1 = errors.New("exit code 1")
 // [FORCE_COLOR]: https://force-color.org/
 var forceColorEnv = []string{"FORCE_COLOR=1", "CLICOLOR_FORCE=1"}
 
-// Run runs an arbitrary command and returns (output, ErrExitCode1)
-// if it exits with error code 1, otherwise returns the original error.
+// Run runs an arbitrary command and returns its combined output.
+// The error is ErrExitCode1 if the command exits with code 1.
 func Run(
 	ctx context.Context, workDir string, envVars []string,
 	logger *slog.Logger,
@@ -43,10 +43,17 @@ func Run(
 	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
 		logger.Debug("command exited with code 1", "pid", c.Process.Pid)
 		return out, ErrExitCode1
-	} else if err != nil {
-		return nil, err
 	}
-	return out, nil
+	return out, err
+}
+
+// FailureMessage returns what to show for a command that failed with err:
+// its output, or err if it printed nothing.
+func FailureMessage(out []byte, err error) string {
+	if len(bytes.TrimSpace(out)) == 0 {
+		return err.Error()
+	}
+	return string(out)
 }
 
 // Sh runs an arbitrary shell script and behaves similar to Run.

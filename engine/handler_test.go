@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -543,6 +544,78 @@ func TestBuildServerCanceledRemovesBinary(t *testing.T) {
 	entries, err := os.ReadDir(outDir)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(entries), "binary left on disk")
+}
+
+// TestCustomWatcherFailure verifies that a custom watcher failing with any exit
+// code doesn't take the action it requires, and that fail-on-error shows why.
+func TestCustomWatcherFailure(t *testing.T) {
+	for _, cmd := range []string{
+		"echo boom && exit 1",
+		"echo boom && exit 2",
+		"no-such-command-templier",
+	} {
+		for _, failOnErr := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/failOnErr=%t", cmd, failOnErr), func(t *testing.T) {
+				base := t.TempDir()
+				h := &fileChangeHandler{
+					engine: &Engine{
+						conf:           Config{App: AppConfig{DirWork: base}},
+						logger:         slog.Default(),
+						chRerunServer:  make(chan struct{}, 1),
+						chRunNewServer: make(chan string, 1),
+					},
+					watchBasePath: base,
+					stateTracker:  statetrack.NewTracker(1),
+					reload:        broadcaster.NewSignalBroadcaster(),
+					debounced:     func(fn func()) { fn() },
+					buildRunner:   ctxrun.New(),
+					customWatchers: []customWatcher{{
+						name:      "watcher",
+						cmd:       cmd,
+						include:   []string{"**/*.css"},
+						debounced: func(fn func()) { fn() },
+						failOnErr: failOnErr,
+						requires:  action.ActionRestart,
+					}},
+				}
+				assert.NoError(t, h.handle(t.Context(), fsnotify.Event{
+					Name: filepath.Join(base, "style.css"), Op: fsnotify.Write,
+				}))
+
+				assert.Equal(t, 0, len(h.engine.chRerunServer),
+					"restarted despite the failure")
+				shown := h.stateTracker.GetCustomWatcher(0)
+				if !failOnErr {
+					assert.Equal(t, "", shown)
+					return
+				}
+				assert.NotEqual(t, "", shown, "failure not shown")
+				if strings.HasPrefix(cmd, "echo") {
+					assert.Contains(t, shown, "boom")
+				}
+			})
+		}
+	}
+}
+
+// TestBuildServerUsageError verifies that a go build failure with an exit code
+// other than 1, here for an unknown flag, is shown instead of clearing the error.
+func TestBuildServerUsageError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs go build")
+	}
+	e := &Engine{
+		conf: Config{
+			App:      AppConfig{DirCmd: "./testdata/hello"},
+			Compiler: &CompilerConfig{Flags: []string{"-no-such-flag"}},
+		},
+		logger:   slog.Default(),
+		goTmpDir: t.TempDir(),
+	}
+	st := statetrack.NewTracker(0)
+	st.Set(statetrack.IndexGo, "previous error")
+	assert.Equal(t, "", e.buildServer(t.Context(), st, t.TempDir()))
+	assert.Contains(t, st.Get(statetrack.IndexGo), "-no-such-flag")
 }
 
 // TestBuildServerRemovesGoTmpDir verifies that go build's temporary files

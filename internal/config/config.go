@@ -185,7 +185,7 @@ type ConfigCustomWatcher struct {
 	// the server, such as when a config file changes.
 	Cmd CmdStr `yaml:"cmd"`
 
-	// FailOnError specifies that in case cmd returns error code 1 the output
+	// FailOnError specifies that in case cmd fails the output
 	// of the execution should be displayed in the browser, just like
 	// for example if the Go compiler fails to compile.
 	FailOnError bool `yaml:"fail-on-error"`

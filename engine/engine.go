@@ -241,22 +241,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	// Initial build: run all custom watcher commands,
 	// then if they succeed, lint & build.
 	for i, w := range e.conf.CustomWatchers {
-		o, err := cmdrun.Sh(ctx, e.conf.App.DirWork, e.logger, w.Cmd)
-		output := string(o)
-		if errors.Is(err, cmdrun.ErrExitCode1) {
-			if !w.FailOnErr {
-				e.logger.Error("custom watcher exited with code 1",
-					"watcher", w.Cmd, "output", output)
-				continue
-			}
-			st.Set(statetrack.IndexOffsetCustomWatcher+i, output)
-			continue
-		} else if err != nil {
-			e.logger.Error("running custom watcher cmd",
-				"watcher", w.Cmd, "err", err)
-			continue
-		}
-		st.Set(statetrack.IndexOffsetCustomWatcher+i, "")
+		e.runCustomWatcherCmd(ctx, st, i, w.Cmd, w.FailOnErr)
 	}
 
 	// Finalize initial build.
@@ -833,34 +818,42 @@ func (h *fileChangeHandler) runCustomWatcher(
 }
 
 // runCustomWatcherCmd runs custom watcher i's command, if any,
-// and reports false if it exited with code 1.
+// and reports whether it succeeded.
 func (h *fileChangeHandler) runCustomWatcherCmd(ctx context.Context, i int) (ok bool) {
 	w := h.customWatchers[i]
 	start := time.Now()
 	defer func() {
 		h.engine.logger.Info(w.name, "duration", time.Since(start))
 	}()
-	if w.cmd != "" {
-		o, err := cmdrun.Sh(ctx, h.engine.conf.App.DirWork, h.engine.logger, w.cmd)
-		output := string(o)
-		if errors.Is(err, cmdrun.ErrExitCode1) {
-			if w.failOnErr {
-				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, output)
-				h.reload.BroadcastNonblock()
-			} else {
-				h.engine.logger.Error("custom watcher exited with code 1",
-					"watcher", w.cmd, "output", output)
-			}
-			return false
-		} else if err != nil {
-			if w.failOnErr {
-				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, output)
-			}
-			h.engine.logger.Error("executing custom watcher",
-				"watcher", w.cmd, "output", output)
-		}
+	if w.cmd == "" {
+		h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, "")
+		return true
 	}
-	h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, "")
+	ok = h.engine.runCustomWatcherCmd(ctx, h.stateTracker, i, w.cmd, w.failOnErr)
+	if !ok && w.failOnErr {
+		h.reload.BroadcastNonblock()
+	}
+	return ok
+}
+
+// runCustomWatcherCmd runs custom watcher i's cmd and reports whether it succeeded.
+// A failure is logged and, with failOnErr, shown in the browser.
+func (e *Engine) runCustomWatcherCmd(
+	ctx context.Context, st *statetrack.Tracker, i int, cmd string, failOnErr bool,
+) (ok bool) {
+	out, err := cmdrun.Sh(ctx, e.conf.App.DirWork, e.logger, cmd)
+	if ctx.Err() != nil {
+		return false // Canceled.
+	}
+	if err != nil {
+		e.logger.Error("custom watcher failed",
+			"watcher", cmd, "err", err, "output", string(out))
+		if failOnErr {
+			st.Set(statetrack.IndexOffsetCustomWatcher+i, cmdrun.FailureMessage(out, err))
+		}
+		return false
+	}
+	st.Set(statetrack.IndexOffsetCustomWatcher+i, "")
 	return true
 }
 
@@ -925,7 +918,7 @@ func (e *Engine) runGolangCILint(ctx context.Context, st *statetrack.Tracker) {
 		st.Set(statetrack.IndexGolangciLint, bufStr)
 		return
 	} else if err != nil {
-		e.logger.Error("failed running golangci-lint", "err", err)
+		e.logger.Error("failed running golangci-lint", "err", err, "output", string(buf))
 		return
 	}
 	st.Set(statetrack.IndexGolangciLint, "")
@@ -966,9 +959,9 @@ func (e *Engine) buildServer(
 		return
 	}
 	if err != nil {
-		bufStr := string(buf)
-		e.logger.Error(bufStr)
-		st.Set(statetrack.IndexGo, bufStr)
+		msg := cmdrun.FailureMessage(buf, err)
+		e.logger.Error(msg)
+		st.Set(statetrack.IndexGo, msg)
 		return
 	}
 	// Reset the process exit and go compiler errors.
