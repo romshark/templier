@@ -199,7 +199,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	customWatchers := make([]customWatcher, len(e.conf.CustomWatchers))
 	for i, w := range e.conf.CustomWatchers {
 		debouncer, debounced := debounce.NewSync(w.Debounce)
-		go debouncer(ctx)
+		// Each watcher runs on its debouncer, so Run waits for it too.
+		wg.Go(func() { debouncer(ctx) })
 
 		customWatchers[i] = customWatcher{
 			name:      w.Name,
@@ -671,41 +672,33 @@ type fileChangeHandler struct {
 	// or "" if none was built.
 	build func(ctx context.Context) (newBinaryPath string)
 
-	// holdLock protects holding and heldBack.
-	holdLock sync.Mutex
-	// holding is true while custom watchers requiring a rebuild are running.
-	// Builds requested meanwhile are held back and merged into that rebuild
-	// instead of being started only to be canceled by it.
-	holding bool
-	// heldBack is true if a build was held back.
+	// lock protects the fields below.
+	lock sync.Mutex
+	// busy maps each custom watcher that's pending or running
+	// to its latest trigger.
+	busy map[int]uint64
+	// triggers counts custom watcher triggers.
+	triggers uint64
+	// act is the strongest action the finished watchers require.
+	act action.Type
+	// heldBack is true if a build was held back while a watcher requiring
+	// a rebuild was busy. It's merged into that rebuild rather than started
+	// and then canceled by it.
 	heldBack bool
 }
 
-// holdBuilds holds back builds until releaseBuilds is called.
-func (h *fileChangeHandler) holdBuilds() {
-	h.holdLock.Lock()
-	defer h.holdLock.Unlock()
-	h.holding = true
-}
-
-// releaseBuilds stops holding back builds and reports whether any were held back.
-func (h *fileChangeHandler) releaseBuilds() (heldBack bool) {
-	h.holdLock.Lock()
-	defer h.holdLock.Unlock()
-	heldBack = h.heldBack
-	h.holding, h.heldBack = false, false
-	return heldBack
-}
-
-// holdBack reports whether builds are being held back and if so,
-// records that one was.
+// holdBack reports whether builds are held back and if so, records that one was.
+// They're held back while a watcher requiring a rebuild is busy.
 func (h *fileChangeHandler) holdBack() bool {
-	h.holdLock.Lock()
-	defer h.holdLock.Unlock()
-	if h.holding {
-		h.heldBack = true
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	for i := range h.busy {
+		if h.customWatchers[i].requires == action.ActionRebuild {
+			h.heldBack = true
+			return true
+		}
 	}
-	return h.holding
+	return false
 }
 
 func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error {
@@ -739,101 +732,25 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 		}
 	}
 
-	var act action.SyncStatus
-	// Triggered watchers report here when done. It's buffered so they
-	// don't block once handle stops waiting.
-	watcherDone := make(chan struct{}, len(h.customWatchers))
-	triggered := 0
-
+	customWatcherTriggered := false
 	for i, w := range h.customWatchers {
-		if !w.isFilePathIncluded(relativeFileName) {
-			continue
-		}
-
-		triggered++
-		if w.requires == action.ActionRebuild {
-			// Builds requested while this watcher runs
-			// are merged into the rebuild it requires.
-			h.holdBuilds()
-		}
-		index := i
-		w.debounced(func() {
-			defer func() { watcherDone <- struct{}{} }()
-			start := time.Now()
-			defer func() {
-				h.engine.logger.Info(w.name,
-					"duration", time.Since(start))
-			}()
-			if w.cmd != "" {
-				o, err := cmdrun.Sh(ctx, h.engine.conf.App.DirWork, h.engine.logger, w.cmd)
-				output := string(o)
-				if errors.Is(err, cmdrun.ErrExitCode1) {
-					if w.failOnErr {
-						h.stateTracker.Set(
-							statetrack.IndexOffsetCustomWatcher+index, output)
-						h.reload.BroadcastNonblock()
-					} else {
-						h.engine.logger.Error("custom watcher exited with code 1",
-							"watcher", w.cmd, "output", output)
-					}
-					return
-				} else if err != nil {
-					if w.failOnErr {
-						h.stateTracker.Set(
-							statetrack.IndexOffsetCustomWatcher+index, output)
-					}
-					h.engine.logger.Error("executing custom watcher",
-						"watcher", w.cmd, "output", output)
-				}
-			}
-			h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+index, "")
-			act.Require(w.requires)
-		})
-	}
-
-	// A watcher still in its debounce window never runs once ctx is canceled.
-	for range triggered {
-		select {
-		case <-watcherDone:
-		case <-ctx.Done():
-			return nil
+		if w.isFilePathIncluded(relativeFileName) {
+			customWatcherTriggered = true
+			h.triggerCustomWatcher(ctx, i, e)
 		}
 	}
-	if h.releaseBuilds() {
-		// A build was held back while the watchers were running. Rebuild regardless
-		// of what they require, the restart and reload that follow cover it.
-		h.engine.logger.Debug("custom watchers: rebuild app server (held back build)")
-		h.recompile(ctx, e)
+	if customWatcherTriggered {
+		// The watchers take the action they require once they're done.
 		return nil
 	}
-	if triggered > 0 {
-		switch act.Load() {
-		case action.ActionNone:
-			h.engine.logger.Debug("custom watchers: no action")
-			return nil
-		case action.ActionReload:
-			h.engine.logger.Debug("custom watchers: notify reload")
-			h.reload.BroadcastNonblock()
-			return nil
-		case action.ActionRestart:
-			h.engine.logger.Debug("custom watchers: rerun app server")
-			select {
-			case h.engine.chRerunServer <- struct{}{}:
-			case <-ctx.Done(): // The launcher may have stopped.
-			}
-			return nil
-		default:
-			h.engine.logger.Debug("custom watchers: rebuild app server")
-		}
-	} else {
-		h.engine.logger.Debug("custom watchers: no watcher triggered")
-		if strings.HasSuffix(e.Name, ".templ") {
-			h.engine.logger.Debug("ignore templ file change", "name", e.Name)
-			return nil
-		}
-		if h.stateTracker.Get(statetrack.IndexTempl) != "" {
-			return nil
-		}
+
+	h.engine.logger.Debug("custom watchers: no watcher triggered")
+	if strings.HasSuffix(e.Name, ".templ") {
+		h.engine.logger.Debug("ignore templ file change", "name", e.Name)
+		return nil
+	}
+	if h.stateTracker.Get(statetrack.IndexTempl) != "" {
+		return nil
 	}
 	if strings.HasSuffix(e.Name, "_templ.go") {
 		h.engine.logger.Debug("ignore _templ.go file change", "name", e.Name)
@@ -847,6 +764,105 @@ func (h *fileChangeHandler) handle(ctx context.Context, e fsnotify.Event) error 
 
 	h.recompile(ctx, e)
 	return nil
+}
+
+// triggerCustomWatcher schedules a run of custom watcher i for change e.
+// Changes made during its debounce share one run.
+func (h *fileChangeHandler) triggerCustomWatcher(
+	ctx context.Context, i int, e fsnotify.Event,
+) {
+	h.lock.Lock()
+	if h.busy == nil {
+		h.busy = make(map[int]uint64)
+	}
+	h.triggers++
+	trigger := h.triggers
+	h.busy[i] = trigger
+	h.lock.Unlock()
+
+	h.customWatchers[i].debounced(func() {
+		h.runCustomWatcher(ctx, i, e, trigger)
+	})
+}
+
+// runCustomWatcher runs custom watcher i for the given trigger.
+// The last busy watcher to finish takes the strongest action the watchers require.
+func (h *fileChangeHandler) runCustomWatcher(
+	ctx context.Context, i int, e fsnotify.Event, trigger uint64,
+) {
+	ok := h.runCustomWatcherCmd(ctx, i)
+
+	h.lock.Lock()
+	if h.busy[i] == trigger {
+		// It wasn't triggered again meanwhile.
+		delete(h.busy, i)
+	}
+	if ok {
+		h.act = max(h.act, h.customWatchers[i].requires)
+	}
+	if len(h.busy) > 0 {
+		h.lock.Unlock()
+		return
+	}
+	act, heldBack := h.act, h.heldBack
+	h.act, h.heldBack = action.ActionNone, false
+	h.lock.Unlock()
+
+	if heldBack {
+		// Rebuild whatever the watchers require.
+		// A rebuild restarts and reloads anyway.
+		h.engine.logger.Debug("custom watchers: rebuild app server (held back build)")
+		h.recompile(ctx, e)
+		return
+	}
+	switch act {
+	case action.ActionNone:
+		h.engine.logger.Debug("custom watchers: no action")
+	case action.ActionReload:
+		h.engine.logger.Debug("custom watchers: notify reload")
+		h.reload.BroadcastNonblock()
+	case action.ActionRestart:
+		h.engine.logger.Debug("custom watchers: rerun app server")
+		select {
+		case h.engine.chRerunServer <- struct{}{}:
+		case <-ctx.Done(): // The launcher may have stopped.
+		}
+	case action.ActionRebuild:
+		h.engine.logger.Debug("custom watchers: rebuild app server")
+		h.recompile(ctx, e)
+	}
+}
+
+// runCustomWatcherCmd runs custom watcher i's command, if any,
+// and reports false if it exited with code 1.
+func (h *fileChangeHandler) runCustomWatcherCmd(ctx context.Context, i int) (ok bool) {
+	w := h.customWatchers[i]
+	start := time.Now()
+	defer func() {
+		h.engine.logger.Info(w.name, "duration", time.Since(start))
+	}()
+	if w.cmd != "" {
+		o, err := cmdrun.Sh(ctx, h.engine.conf.App.DirWork, h.engine.logger, w.cmd)
+		output := string(o)
+		if errors.Is(err, cmdrun.ErrExitCode1) {
+			if w.failOnErr {
+				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, output)
+				h.reload.BroadcastNonblock()
+			} else {
+				h.engine.logger.Error("custom watcher exited with code 1",
+					"watcher", w.cmd, "output", output)
+			}
+			return false
+		} else if err != nil {
+			if w.failOnErr {
+				h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, output)
+			}
+			h.engine.logger.Error("executing custom watcher",
+				"watcher", w.cmd, "output", output)
+		}
+	}
+	h.stateTracker.Set(statetrack.IndexOffsetCustomWatcher+i, "")
+	return true
 }
 
 func (h *fileChangeHandler) isExcluded(relPath string) bool {

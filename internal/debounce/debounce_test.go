@@ -38,6 +38,42 @@ func TestDebounce(t *testing.T) {
 	assert.Equal(t, int32(1), counter.Load())
 }
 
+// TestTriggerWhileRunning verifies that a trigger doesn't block while fn runs,
+// and that the new fn runs afterwards.
+func TestTriggerWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	runDebouncer, trigger := debounce.NewSync(time.Millisecond)
+	go runDebouncer(ctx)
+
+	running, release := make(chan struct{}), make(chan struct{})
+	trigger(func() {
+		close(running)
+		<-release
+	})
+	<-running
+
+	triggered, ranNext := make(chan struct{}), make(chan struct{})
+	go func() {
+		trigger(func() { close(ranNext) })
+		close(triggered)
+	}()
+	select {
+	case <-triggered:
+	case <-time.After(time.Second):
+		t.Fatal("trigger blocked while fn was running")
+	}
+
+	close(release)
+	select {
+	case <-ranNext:
+	case <-time.After(time.Second):
+		t.Fatal("fn triggered during another's run never ran")
+	}
+}
+
 func TestNoDebounce(t *testing.T) {
 	t.Parallel()
 

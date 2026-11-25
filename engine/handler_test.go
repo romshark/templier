@@ -190,29 +190,132 @@ func TestBuildHeldBackDuringRebuildWatcher(t *testing.T) {
 			}))
 
 			// Create the watched file, which triggers the watcher.
-			handleErr := make(chan error, 1)
-			go func() {
-				handleErr <- handler.handle(ctx, fsnotify.Event{
-					Name: filepath.Join(base, tt.changed), Op: fsnotify.Create,
-				})
-			}()
+			assert.NoError(t, handler.handle(ctx, fsnotify.Event{
+				Name: filepath.Join(base, tt.changed), Op: fsnotify.Create,
+			}))
 			runWatcher := <-watcherTriggered
 
-			// The first event's debounced build fires while the watcher runs.
+			// The first event's debounced build fires while the watcher is busy.
 			fireDebouncedBuild()
 			handler.buildRunner.Wait()
 			assert.Equal(t, int32(0), builds.Load(),
-				"build started while the watcher was running")
+				"build started while the watcher was busy")
 
 			runWatcher()
-			assert.NoError(t, <-handleErr)
 
-			// The second event's debounced build fires.
+			// The debounced rebuild fires.
 			fireDebouncedBuild()
 			handler.buildRunner.Wait()
 			assert.Equal(t, int32(1), builds.Load())
 		})
 	}
+}
+
+// TestBuildHeldBackUntilRebuildWatcherDone verifies that when a custom watcher
+// requiring a rebuild is triggered again while running, builds stay held back
+// until its last run is done.
+func TestBuildHeldBackUntilRebuildWatcherDone(t *testing.T) {
+	base := t.TempDir()
+	runs := make(chan func(), 2)
+	var builds atomic.Int32
+	h := &fileChangeHandler{
+		engine: &Engine{
+			logger:         slog.Default(),
+			chRerunServer:  make(chan struct{}, 1),
+			chRunNewServer: make(chan string, 1),
+		},
+		watchBasePath: base,
+		stateTracker:  statetrack.NewTracker(1),
+		reload:        broadcaster.NewSignalBroadcaster(),
+		debounced:     func(fn func()) { fn() },
+		buildRunner:   ctxrun.New(),
+		build: func(context.Context) string {
+			builds.Add(1)
+			return ""
+		},
+		customWatchers: []customWatcher{{
+			name:      "codegen",
+			include:   []string{"gen/**"},
+			debounced: func(fn func()) { runs <- fn },
+			requires:  action.ActionRebuild,
+		}},
+	}
+	ctx := t.Context()
+	handle := func(name string) {
+		t.Helper()
+		assert.NoError(t, h.handle(ctx, fsnotify.Event{
+			Name: filepath.Join(base, name), Op: fsnotify.Write,
+		}))
+	}
+	assertBuilds := func(want int32) {
+		t.Helper()
+		h.buildRunner.Wait()
+		assert.Equal(t, want, builds.Load())
+	}
+
+	handle("gen/gen.go")
+	firstRun := <-runs
+	// The watcher is triggered again right as its first run starts.
+	handle("gen/gen.go")
+	secondRun := <-runs
+
+	firstRun()
+	// A change the watcher doesn't match.
+	handle("app.go")
+	assertBuilds(0)
+
+	secondRun()
+	assertBuilds(1)
+}
+
+// TestCustomWatchersTakeStrongestAction verifies that the last custom watcher
+// to finish takes the strongest action the watchers require.
+func TestCustomWatchersTakeStrongestAction(t *testing.T) {
+	base := t.TempDir()
+	reloadRuns, restartRuns := make(chan func(), 1), make(chan func(), 1)
+	reload := broadcaster.NewSignalBroadcaster()
+	reloads := make(chan struct{}, 1)
+	reload.AddListener(reloads)
+	h := &fileChangeHandler{
+		engine: &Engine{
+			logger:         slog.Default(),
+			chRerunServer:  make(chan struct{}, 1),
+			chRunNewServer: make(chan string, 1),
+		},
+		watchBasePath: base,
+		stateTracker:  statetrack.NewTracker(2),
+		reload:        reload,
+		debounced:     func(fn func()) { fn() },
+		buildRunner:   ctxrun.New(),
+		customWatchers: []customWatcher{
+			{
+				name:      "css",
+				include:   []string{"**/*.css"},
+				debounced: func(fn func()) { reloadRuns <- fn },
+				requires:  action.ActionReload,
+			},
+			{
+				name:      "config",
+				include:   []string{"**/*.toml"},
+				debounced: func(fn func()) { restartRuns <- fn },
+				requires:  action.ActionRestart,
+			},
+		},
+	}
+	ctx := t.Context()
+	for _, name := range []string{"style.css", "config.toml"} {
+		assert.NoError(t, h.handle(ctx, fsnotify.Event{
+			Name: filepath.Join(base, name), Op: fsnotify.Write,
+		}))
+	}
+
+	(<-reloadRuns)()
+	assert.Equal(t, 0, len(reloads), "reloaded while a watcher was busy")
+	assert.Equal(t, 0, len(h.engine.chRerunServer))
+
+	(<-restartRuns)()
+	assert.Equal(t, 0, len(reloads), "reloaded instead of restarting")
+	assert.Equal(t, 1, len(h.engine.chRerunServer))
 }
 
 // TestHandleReturnsOnCancel verifies that handle returns once ctx is canceled
@@ -287,6 +390,56 @@ func TestHandleReturnsOnCancel(t *testing.T) {
 		}()
 		assertReturns(t, handleErr)
 	})
+}
+
+// TestCustomWatcherDebounceMergesEvents verifies that changes made while
+// a custom watcher waits out its debounce share a single run.
+func TestCustomWatcherDebounceMergesEvents(t *testing.T) {
+	ctx := t.Context()
+	runDebouncer, debounced := debounce.NewSync(100 * time.Millisecond)
+	go runDebouncer(ctx)
+
+	reload := broadcaster.NewSignalBroadcaster()
+	reloads := make(chan struct{}, 10)
+	reload.AddListener(reloads)
+
+	base := t.TempDir()
+	h := &fileChangeHandler{
+		engine: &Engine{
+			logger:         slog.Default(),
+			chRerunServer:  make(chan struct{}, 1),
+			chRunNewServer: make(chan string, 1),
+		},
+		watchBasePath: base,
+		stateTracker:  statetrack.NewTracker(1),
+		reload:        reload,
+		debounced:     func(fn func()) { fn() },
+		buildRunner:   ctxrun.New(),
+		customWatchers: []customWatcher{{
+			name:      "watcher",
+			include:   []string{"**/*.go"},
+			debounced: debounced,
+			requires:  action.ActionReload,
+		}},
+	}
+
+	// Save a file by renaming a temporary file over it.
+	// The file watcher handles events one at a time.
+	name := filepath.Join(base, "app.go")
+	for _, op := range []fsnotify.Op{fsnotify.Remove, fsnotify.Create} {
+		assert.NoError(t, h.handle(ctx, fsnotify.Event{Name: name, Op: op}))
+	}
+
+	select {
+	case <-reloads:
+	case <-time.After(2 * time.Second):
+		t.Fatal("custom watcher didn't run")
+	}
+	select {
+	case <-reloads:
+		t.Fatal("custom watcher ran once per change")
+	case <-time.After(300 * time.Millisecond):
+	}
 }
 
 // TestBuildServerRemovesGoTmpDir verifies that go build's temporary files

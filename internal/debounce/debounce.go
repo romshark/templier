@@ -26,9 +26,13 @@ func NewSync(duration time.Duration) (
 			case <-ticker.C:
 				lock.Lock()
 				ticker.Stop()
-				fn()
+				f := fn
 				fn = nil
 				lock.Unlock()
+				// Run f unlocked so triggers don't block while it runs.
+				if f != nil {
+					f()
+				}
 			case <-ctx.Done():
 				return
 			}
