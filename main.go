@@ -44,7 +44,7 @@ func main() {
 	case engine.LogLevelVerbose:
 		lvl.Set(slog.LevelInfo)
 	default:
-		lvl.Set(slog.LevelError)
+		lvl.Set(slog.LevelWarn)
 	}
 	logger := slog.New(log.NewHandler(os.Stdout, &lvl))
 

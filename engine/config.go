@@ -51,7 +51,7 @@ const (
 type LogLevel int8
 
 const (
-	// LogLevelError logs errors only.
+	// LogLevelError logs errors and warnings only.
 	LogLevelError LogLevel = iota
 	// LogLevelVerbose enables verbose logging of relevant events.
 	LogLevelVerbose

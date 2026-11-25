@@ -22,7 +22,7 @@ templ-cmd: templ
 log:
   # level allows you to chose from different log levels:
   #  "" (empty): same as erronly.
-  #  erronly: error logs only.
+  #  erronly: errors and warnings only.
   #  verbose: verbose logging of relevant events and timings.
   #  debug: verbose debug logging.
   level: erronly

@@ -152,7 +152,7 @@ type ConfigCompiler struct {
 type ConfigLog struct {
 	// Level accepts either of:
 	//  - "": empty string is the same as "erronly"
-	//  - "erronly": error logs only.
+	//  - "erronly": errors and warnings only.
 	//  - "verbose": verbose logging of relevant events.
 	//  - "debug": verbose debug logging.
 	Level LogLevel `yaml:"level"`
