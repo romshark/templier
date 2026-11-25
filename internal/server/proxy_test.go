@@ -107,6 +107,27 @@ func TestProxyRetriesUntilAppServerIsUp(t *testing.T) {
 	assert.Equal(t, "ok", string(body))
 }
 
+func TestProxyHEAD(t *testing.T) {
+	for _, encoding := range []string{"", "gzip"} {
+		app := httptest.NewServer(http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				if encoding != "" {
+					w.Header().Set("Content-Encoding", encoding)
+				}
+				_, _ = fmt.Fprint(w, "<html><head></head></html>") // Not sent for HEAD.
+			},
+		))
+		t.Cleanup(app.Close)
+		ts := newProxy(t, strings.TrimPrefix(app.URL, "http://"), time.Second)
+
+		resp, err := http.Head(ts.URL)
+		assert.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "encoding %q", encoding)
+		assert.Equal(t, "", resp.Header.Get("Content-Length"), "encoding %q", encoding)
+	}
+}
+
 func TestProxyDoesntResendRequests(t *testing.T) {
 	// The app server reads each request, then drops the connection.
 	l, err := net.Listen("tcp", "127.0.0.1:0")

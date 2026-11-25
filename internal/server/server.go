@@ -135,6 +135,13 @@ func (s *Server) modifyResponse(r *http.Response) error {
 		return nil
 	}
 
+	// A HEAD response has no body to modify. The app server's Content-Length
+	// doesn't account for the injection or re-encoding, so drop it.
+	if r.Request.Method == http.MethodHead {
+		r.Header.Del("Content-Length")
+		return nil
+	}
+
 	// Skip modification if Content-Type is text/event-stream (SSE)
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
 		return nil
