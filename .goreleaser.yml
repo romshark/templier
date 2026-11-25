@@ -49,6 +49,7 @@ archives:
       - goos: windows
         format: zip
 
+# Used only when GoReleaser runs without --release-notes.
 changelog:
   sort: asc
   filters:
