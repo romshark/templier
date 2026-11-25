@@ -83,8 +83,8 @@ type Config struct {
 	// after a file change. Zero means 50ms default.
 	Debounce time.Duration
 
-	// ProxyTimeout for proxied requests to the app server.
-	// Zero means 2s default.
+	// ProxyTimeout is how long the proxy keeps trying to connect to the
+	// app server, for example while it restarts. Zero means 2s default.
 	ProxyTimeout time.Duration
 
 	// Lint enables golangci-lint before building.

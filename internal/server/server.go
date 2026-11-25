@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"math"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -32,9 +33,9 @@ const (
 	// This path is very unlikely to collide with any path used by the app server.
 	PathProxyEvents = "/__templier/events"
 
-	ReverseProxyRetries         = 20
-	ReverseProxyInitialDelay    = 100 * time.Millisecond
-	ReverseProxyBackoffExponent = 1.5
+	// ReverseProxyRetryInterval is how long the proxy waits
+	// before trying to connect to the app server again.
+	ReverseProxyRetryInterval = 100 * time.Millisecond
 )
 
 type Config struct {
@@ -48,7 +49,6 @@ type Config struct {
 type Server struct {
 	config            Config
 	logger            *slog.Logger
-	httpClient        *http.Client
 	stateTracker      *statetrack.Tracker
 	reload            *broadcaster.SignalBroadcaster
 	jsInjection       []byte
@@ -76,7 +76,6 @@ func RenderErrpage(
 }
 
 func New(
-	httpClient *http.Client,
 	stateTracker *statetrack.Tracker,
 	reload *broadcaster.SignalBroadcaster,
 	logger *slog.Logger,
@@ -88,7 +87,6 @@ func New(
 	s := &Server{
 		config:       conf,
 		logger:       logger,
-		httpClient:   httpClient,
 		stateTracker: stateTracker,
 		reload:       reload,
 		jsInjection:  jsInjection,
@@ -100,9 +98,8 @@ func New(
 	}
 	s.reverseProxy = httputil.NewSingleHostReverseProxy(conf.AppHost)
 	s.reverseProxy.Transport = &roundTripper{
-		maxRetries:      ReverseProxyRetries,
-		initialDelay:    ReverseProxyInitialDelay,
-		backoffExponent: ReverseProxyBackoffExponent,
+		timeout:       conf.ProxyTimeout,
+		retryInterval: ReverseProxyRetryInterval,
 	}
 	s.reverseProxy.ModifyResponse = s.modifyResponse
 	return s
@@ -337,9 +334,9 @@ func internalErr(w http.ResponseWriter, msg string, err error) {
 }
 
 type roundTripper struct {
-	maxRetries      int
-	initialDelay    time.Duration
-	backoffExponent float64
+	// timeout is how long to keep trying to connect to the app server.
+	timeout       time.Duration
+	retryInterval time.Duration
 }
 
 func (rt *roundTripper) setShouldSkipResponseModificationHeader(
@@ -365,30 +362,35 @@ func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		_ = r.Body.Close()
 	}
 
-	// Retry logic.
-	var resp *http.Response
-	var err error
-	for retries := range rt.maxRetries {
+	// The app server may be restarting, so keep trying to connect until
+	// the timeout passes or the client gives up.
+	deadline := time.Now().Add(rt.timeout)
+	for {
 		// Clone the request and set the body.
 		req := r.Clone(r.Context())
 		if bodyBytes != nil {
 			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		}
 
-		// Execute the request.
-		resp, err = http.DefaultTransport.RoundTrip(req)
-		if err != nil {
-			dur := time.Duration(math.Pow(rt.backoffExponent, float64(retries)))
-			time.Sleep(rt.initialDelay * dur)
-			continue
+		resp, err := http.DefaultTransport.RoundTrip(req)
+		if err == nil {
+			rt.setShouldSkipResponseModificationHeader(r, resp)
+			return resp, nil
 		}
 
-		rt.setShouldSkipResponseModificationHeader(r, resp)
-
-		return resp, nil
+		// Only retry if connecting failed.
+		// Otherwise the app server may have received the request already.
+		var opErr *net.OpError
+		wait := min(rt.retryInterval, time.Until(deadline))
+		if !errors.As(err, &opErr) || opErr.Op != "dial" || wait <= 0 {
+			return nil, err
+		}
+		select {
+		case <-time.After(wait):
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
 	}
-
-	return nil, fmt.Errorf("max retries reached: %q", r.URL.String())
 }
 
 // WriteWithInjection writes to w the body with the injection either at the end of the

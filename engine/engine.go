@@ -394,7 +394,6 @@ func (e *Engine) runTemplierServer(
 	httpSrv := http.Server{
 		Addr: e.conf.TemplierHost,
 		Handler: server.New(
-			&http.Client{Timeout: e.conf.ProxyTimeout},
 			st,
 			reload,
 			e.logger,

@@ -37,8 +37,8 @@ type Config struct {
 	// Debounce is the file watcher debounce duration.
 	Debounce time.Duration `yaml:"debounce"`
 
-	// ProxyTimeout defines for how long the proxy must try retry
-	// requesting the application server when receiving connection refused error.
+	// ProxyTimeout defines how long the proxy keeps trying to connect
+	// to the application server, for example while it restarts.
 	ProxyTimeout time.Duration `yaml:"proxy-timeout"`
 
 	// Lint runs golangci-lint before building if enabled.
