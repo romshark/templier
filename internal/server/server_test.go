@@ -32,6 +32,23 @@ func TestMustRenderJSInjection(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestInjectionNotModified verifies that the injection, which concurrent
+// responses share, isn't written to, not even past its length.
+func TestInjectionNotModified(t *testing.T) {
+	injection := make([]byte, 0, 64)
+	injection = append(injection, "<script></script>"...)
+	whole := injection[:cap(injection)]
+	original := bytes.Clone(whole)
+
+	for _, body := range []string{
+		"<head></head>", "<HEAD></HEAD>", "<body></body>", "<BODY></BODY>", "text",
+	} {
+		var buf bytes.Buffer
+		assert.NoError(t, server.WriteWithInjection(&buf, []byte(body), injection))
+		assert.Equal(t, original, whole, "injection modified for %q", body)
+	}
+}
+
 func TestInjectInBody(t *testing.T) {
 	jsInjection := []byte(`<script>console.log("injection")</script>`)
 

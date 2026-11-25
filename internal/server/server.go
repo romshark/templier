@@ -201,12 +201,10 @@ func (s *Server) modifyResponse(r *http.Response) error {
 	return nil
 }
 
-var (
-	bytesHeadClosingTag          = []byte("</head>")
-	bytesHeadClosingTagUppercase = []byte("</HEAD>")
-	bytesBodyClosingTag          = []byte("</body>")
-	bytesBodyClosingTagUppercase = []byte("</BODY>")
-)
+// closingTags are the tags the injection is placed in front of, in order of preference.
+var closingTags = [][]byte{
+	[]byte("</head>"), []byte("</HEAD>"), []byte("</body>"), []byte("</BODY>"),
+}
 
 func (s *Server) handleProxyEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -394,41 +392,23 @@ func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // WriteWithInjection writes to w the body with the injection either at the end of the
-// head or at the end of the body. If neither the head nor the body closing tags are
+// head or at the end of the body. If neither the head nor the body closing tag is found,
 // the injection is written to w before body.
+// injection is shared by concurrent responses and must not be modified.
 func WriteWithInjection(
 	w io.Writer, body []byte, injection []byte,
 ) error {
-	if bytes.Contains(body, bytesHeadClosingTag) {
-		// HEAD closing tag found, replace it.
-		modified := bytes.Replace(body, bytesHeadClosingTag,
-			append(injection, bytesHeadClosingTag...), 1)
-		_, err := w.Write(modified)
-		return err
-	} else if bytes.Contains(body, bytesHeadClosingTagUppercase) {
-		// Uppercase HEAD closing tag found, replace it.
-		modified := bytes.Replace(body, bytesHeadClosingTagUppercase,
-			append(injection, bytesHeadClosingTagUppercase...), 1)
-		_, err := w.Write(modified)
-		return err
-	} else if bytes.Contains(body, bytesBodyClosingTag) {
-		// BODY closing tag found, replace it.
-		modified := bytes.Replace(body, bytesBodyClosingTag,
-			append(injection, bytesBodyClosingTag...), 1)
-		_, err := w.Write(modified)
-		return err
-	} else if bytes.Contains(body, bytesBodyClosingTagUppercase) {
-		// Uppercase BODY closing tag found, replace it.
-		modified := bytes.Replace(body, bytesBodyClosingTagUppercase,
-			append(injection, bytesBodyClosingTagUppercase...), 1)
-		_, err := w.Write(modified)
-		return err
+	at := 0
+	for _, tag := range closingTags {
+		if i := bytes.Index(body, tag); i != -1 {
+			at = i
+			break
+		}
 	}
-
-	// Prepend the injection to the body.
-	if _, err := w.Write(injection); err != nil {
-		return err
+	for _, b := range [][]byte{body[:at], injection, body[at:]} {
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
 	}
-	_, err := w.Write(body)
-	return err
+	return nil
 }
