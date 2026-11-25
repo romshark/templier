@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -390,6 +391,8 @@ func (e *Engine) runTemplierServer(
 				ReconnectMessage:   e.conf.ReconnectMessage,
 			},
 		),
+		// Ends WebSocket connections, which Close leaves open.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	// Use WithContext so a ListenAndServe failure
